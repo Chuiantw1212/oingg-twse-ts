@@ -499,4 +499,4 @@ https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&date=20250801&sto
 
 ---
 
-MIT
+MIT Licence
