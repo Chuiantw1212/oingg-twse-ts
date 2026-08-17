@@ -22,17 +22,20 @@
   },
   "homepage": "https://github.com/Chuiantw1212/oingg-twse-ts#readme",
   "dependencies": {
+    "@prisma/client": "^5.17.0",
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
-    "@prisma/client": "^5.17.0",
     "uWebSockets.js": "github:uNetworking/uWebSockets.js#v20.48.0",
     "ultimate-express": "^2.0.12"
   },
   "devDependencies": {
     "@types/node": "^20.14.2",
+    "prisma": "^5.17.0",
     "rimraf": "^5.0.7",
     "tsx": "^4.23.12",
     "typescript": "^5.4.5"
   },
-  "engines": { "node": ">=22 <23" }
+  "engines": {
+    "node": ">=22 <23"
+  }
 }

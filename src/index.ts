@@ -1,10 +1,10 @@
-import express, { Express, Request, Response } from 'ultimate-express';
+import express, { Request, Response } from 'ultimate-express';
 import { config } from './config';
 import { ingestTwseData } from './ingest';
 import { connectDb } from './db';
 import { timingSafeEqual } from 'crypto';
 
-const app: Express = express();
+const app = express();
 
 // --- Middleware ---
 app.use(express.json());

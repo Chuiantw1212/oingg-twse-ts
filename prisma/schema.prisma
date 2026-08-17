@@ -1,0 +1,49 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// 原始回應，出錯時的救命繩
+model TwseRaw {
+  id        BigInt   @id @default(autoincrement())
+  dataset   String
+  tradeDate DateTime @db.Date
+  fetchedAt DateTime @default(now())
+  payload   Json
+
+  @@unique([dataset, tradeDate])
+  @@map("twse_raw")
+}
+
+// STOCK_DAY_ALL + STOCK_DAY_AVG_ALL
+model DailyPrice {
+  symbol     String
+  tradeDate  DateTime @db.Date
+  open       Decimal? @db.Decimal(10, 4)
+  high       Decimal? @db.Decimal(10, 4)
+  low        Decimal? @db.Decimal(10, 4)
+  close      Decimal? @db.Decimal(10, 4)
+  volume     BigInt?
+  turnover   BigInt?
+  monthlyAvg Decimal? @db.Decimal(10, 4)
+
+  @@id([symbol, tradeDate])
+  @@map("daily_price")
+}
+
+// BWIBBU_ALL（缺值模式不同，所以分開存）
+model DailyValuation {
+  symbol        String
+  tradeDate     DateTime @db.Date
+  peRatio       Decimal? @db.Decimal(10, 2)
+  pbRatio       Decimal? @db.Decimal(10, 2)
+  dividendYield Decimal? @db.Decimal(10, 2)
+
+  @@id([symbol, tradeDate])
+  @@map("daily_valuation")
+}
