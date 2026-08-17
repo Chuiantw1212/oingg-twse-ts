@@ -1,61 +1,32 @@
 # TWSE 資料同步微服務
 
-以 TypeScript、ultimate-express、Prisma、Neon Serverless Postgres 建構的資料同步微服務。接收外部排程器的觸發，向台灣證券交易所抓取盤後資料，正規化後存入 Neon。
+每日從台灣證券交易所抓取盤後資料，存入 Neon Postgres。
+TypeScript + ultimate-express + Prisma，部署在 Cloud Run。
 
 ---
 
-## ⚠️ 先讀這一段：資料來源的關鍵限制
+## ⚠️ 最重要的限制
 
-**`openapi.twse.com.tw` 只提供最新一個交易日的快照，不提供歷史查詢。**
+**`openapi.twse.com.tw` 只給「今天」的資料，沒有歷史查詢。**
 
-實測加上 `?date=20240102` 參數，回傳內容與不加參數完全相同（response body 的 md5 一致），也就是說該參數不被採用。
+加上 `?date=` 參數無效（回傳內容完全相同）。所以：
 
-推論出三個必須遵守的規則：
+- **漏抓一天，那天的資料就永久消失**，沒有任何補救方式
+- 因此原始 JSON 必須先存下來（`twse_raw` 表），正規化失敗才有機會重跑
+- 因此排程失敗必須告警，不能靜默忽略
 
-1. **漏抓一天，該日資料就永久遺失**——OpenAPI 沒有任何補救方式
-2. **歷史資料必須另外從 `www.twse.com.tw` 的舊版 API 取得**（見「歷史資料回填」章節）
-3. **必須保留原始回應**（raw landing table），parser 寫錯時才能重新衍生，而不需要回頭求證交所
-
-排程失敗必須告警，不能靜默忽略。
+歷史資料要另外從 `www.twse.com.tw` 抓（見最後一節）。
 
 ---
 
-## 專案架構
+## 資料流
 
 ```
-┌──────────────────┐
-│ Cloud Scheduler  │  每個交易日 14:30 (Asia/Taipei)
-│  (OIDC 驗證)     │
-└────────┬─────────┘
-         │ POST /api/tasks/ingest
-         ▼
-┌──────────────────────────────────────────┐
-│  Cloud Run Service (ultimate-express)    │
-│                                          │
-│  ┌────────────┐      ┌────────────────┐  │
-│  │ twse/      │─────▶│ normalizer     │  │
-│  │ client     │      │ 民國年/字串數字 │  │
-│  └─────┬──────┘      └───────┬────────┘  │
-│        │                     │           │
-└────────┼─────────────────────┼───────────┘
-         │                     │
-         ▼                     ▼
-┌──────────────────┐   ┌──────────────────────────┐
-│  TWSE OpenAPI    │   │      Neon Postgres       │
-│ openapi.twse.    │   │                          │
-│    com.tw        │   │  twse_raw    ← 原始 JSON │
-└──────────────────┘   │  daily_price ← 正規化    │
-                       └──────────────────────────┘
-
-┌──────────────────┐
-│ Cloud Run Job    │  一次性歷史回填（本機或 Job 執行）
-│  backfill        │  來源：www.twse.com.tw MI_INDEX
-└──────────────────┘
+Cloud Scheduler  →  POST /api/ingest  →  抓 TWSE  →  存 twse_raw  →  正規化  →  存 daily_price
+   每天 14:30                                                                    daily_valuation
 ```
 
-**為什麼要 `twse_raw`**：正規化表是 derived data。當你發現某個欄位理解錯誤、或想多存一個欄位時，可以從 raw 重跑，不必重新抓（也抓不到）。
-
-**為什麼回填要獨立成 Job**：一年約 245 個交易日、每次請求間隔 3~5 秒，總計 15~20 分鐘，會超過 Cloud Run Service 的 request timeout。
+就這樣，沒有訊息隊列、沒有背景 worker。每日資料量小，同步處理幾秒內完成。
 
 ---
 
@@ -64,60 +35,87 @@
 ```
 oingg-twse-ts/
 ├── prisma/
-│   ├── schema.prisma          # 資料庫模型
-│   └── migrations/            # migration 歷史（必須提交到 Git）
+│   ├── schema.prisma       # 資料表定義
+│   └── migrations/         # 要提交到 Git
 ├── src/
-│   ├── api/
-│   │   ├── routes/
-│   │   │   └── task.route.ts
-│   │   ├── controllers/
-│   │   │   └── task.controller.ts
-│   │   └── middleware/
-│   │       └── auth.ts        # OIDC / shared secret 驗證
-│   ├── twse/                  # 資料來源層（不依賴 api/）
-│   │   ├── openapi.client.ts  # openapi.twse.com.tw
-│   │   ├── legacy.client.ts   # www.twse.com.tw（回填用，含 rate limit）
-│   │   ├── normalizer.ts      # 民國年、千分位、"--" → null
-│   │   └── datasets/
-│   │       └── stockDayAll.ts
-│   ├── db/
-│   │   ├── client.ts          # Prisma client singleton
-│   │   └── repository.ts      # upsert 邏輯
-│   ├── jobs/
-│   │   ├── ingest.ts          # 每日增量（可獨立執行）
-│   │   └── backfill.ts        # 歷史回填進入點
-│   ├── config/
-│   │   └── index.ts           # 環境變數驗證（啟動時 fail fast）
-│   ├── server.ts              # Cloud Run Service 進入點
-│   └── index.ts               # 本地開發進入點
+│   ├── index.ts            # 進入點：Express + 路由 + 驗證
+│   ├── config.ts           # 環境變數（啟動時檢查，缺就直接掛掉）
+│   ├── twse.ts             # 抓取 + 資料清理
+│   ├── db.ts               # Prisma client + upsert
+│   └── ingest.ts           # 主流程：抓 → 存 raw → 正規化 → upsert
 ├── tests/
-│   └── normalizer.test.ts     # 最需要測試的部分
-├── .env.example
-├── .dockerignore
+│   └── twse.test.ts        # 資料清理的測試（最重要）
+├── backfill.ts             # 歷史回填，只在本機跑，不進 image
+├── pnpm-workspace.yaml     # ⚠️ 必要，見「安裝」
 ├── Dockerfile
-├── package.json
-├── pnpm-workspace.yaml        # ⚠️ 必要，見「安裝」章節
-├── pnpm-lock.yaml
-├── tsconfig.json
-└── README.md
+├── .env.example
+└── package.json
 ```
 
-`twse/` 與 `db/` 不放在 `api/` 底下，因為 `jobs/` 也要用同一份邏輯——業務邏輯不屬於 API 層。
+刻意保持扁平。每個檔案一個職責，不要再往下分層。
+
+**唯一的例外，等觸發了再做：** 當 `twse.ts` 超過約 400 行時（大概是第 4~5 個 dataset），按 dataset 拆分：
+
+```
+src/
+├── twse-client.ts        # 只有 fetch
+├── twse-parse.ts         # 共用純函式：rocToDate, parseTwseNumber
+└── datasets/
+    ├── index.ts          # export const DATASETS = [...]
+    ├── stockDayAll.ts    # 每個 dataset 一個檔案
+    └── bwibbu.ts
+```
+
+每個 dataset 檔案 export 同一個形狀（`{ name, endpoint, normalize, upsert }`），`datasets/index.ts` 用陣列註冊。這樣新增 dataset 只要新增一個檔案 + 註冊一行，`ingest.ts` 完全不用改。
+
+**在那之前不要預先建立這個結構**，也不要先定 `Dataset` 介面。等三個 dataset 都寫完，共通的部分才會明確，這時抽象一次就對。現在憑想像定介面會定錯，然後 normalizer 會為了遷就錯的介面而寫歪。
+
+`backfill.ts` 放在根目錄而非 `src/`，是因為它被 `.dockerignore` 排除、不會被編譯進 `dist/`。放在 `src/` 底下會讓「哪些檔案會進 image」變得不明顯。
+
+**它不能跟 `index.ts` 合併。** 兩者生命週期相反（server 常駐、backfill 跑完就結束），但真正的理由是安全：回填會在 20 分鐘內對證交所發幾百次請求，這段 code 不該存在於 production image 裡。萬一被環境變數或旗標誤觸發，你的線上服務會開始猛打證交所並導致 IP 被封。不存在的 code 不會被誤觸。
 
 ---
 
-## 先決條件
+## 每天抓哪些
 
-| 項目 | 版本 | 說明 |
+三支端點，各一次請求，全市場一次拿完：
+
+| 端點 | 內容 | 為什麼要抓 |
 |---|---|---|
-| Node.js | **22.x**（固定） | `uWebSockets.js` 是 native module，綁 Node ABI，build 與 runtime 版本必須一致 |
-| pnpm | >= 10.26 | 較舊版本沒有 `blockExoticSubdeps` 設定 |
-| Neon | 專案已建立 | 需要 pooled 與 direct 兩組連線字串 |
+| `/exchangeReport/STOCK_DAY_ALL` | 開高低收、成交量、成交金額 | 地基，所有計算都靠它 |
+| `/exchangeReport/BWIBBU_ALL` | 本益比、殖利率、股價淨值比 | **算不出來**，需要 EPS 和股利 |
+| `/exchangeReport/STOCK_DAY_AVG_ALL` | 收盤價、月平均價 | 可交叉驗證自己算的平均 |
 
-`package.json` 應包含：
+判斷要不要抓某個 dataset 的標準：**能不能從已有資料算出來？** 不能就抓，因為明天就沒了。
 
-```json
-"engines": { "node": ">=22 <23" }
+之後建議加上除權息資料，否則除權息日會出現假跳空，報酬率和均線都是錯的。
+
+---
+
+## 給 AI agent 的規則
+
+把以下內容放進專案根目錄的 `GEMINI.md`，Gemini CLI 會自動載入。這些是它猜不到、且會反覆猜錯的規則：
+
+```markdown
+# 專案規則
+
+## 資料處理（違反會導致靜默的錯誤資料）
+- 日期是民國年字串："1150731" → 2026-07-31（前三位 + 1911）
+- 所有 JSON 欄位都是字串，包含數字。必須明確轉型
+- "1,234,567" 要去掉逗號；"--" 和 "" 要轉成 null
+- 價格一律用 Prisma Decimal / Postgres NUMERIC，禁止 Float
+- 交易日判定必須用 Asia/Taipei 計算，禁止用 new Date() 直接取當地時間
+
+## 資料庫
+- 所有寫入用 upsert，必須可重複執行不出錯
+- 原始回應先存 twse_raw，再正規化
+- schema 變更用 prisma migrate，禁止 db push
+- 禁止在容器啟動時執行 migration
+
+## 其他
+- 每個資料清理函式都要有對應的單元測試
+- 維持扁平結構，不要主動新增資料夾層級
+- 例外：`twse.ts` 超過 400 行時，才按 dataset 拆到 `datasets/`（見 README 結構章節）
 ```
 
 ---
@@ -125,58 +123,54 @@ oingg-twse-ts/
 ## 安裝
 
 ```bash
-git clone https://github.com/Chuiantw1212/oingg-twse-ts.git
-cd oingg-twse-ts
 pnpm install
 ```
 
-### ⚠️ `pnpm-workspace.yaml` 是必要檔案
+### `pnpm-workspace.yaml` 是必要檔案
 
-`ultimate-express` 依賴 `uWebSockets.js`，後者透過 GitHub 安裝。pnpm 的 `blockExoticSubdeps`（10.26 起加入，11.0 起預設 `true`）會禁止間接依賴使用非 registry 來源，導致安裝失敗：
+`ultimate-express` 依賴的 `uWebSockets.js` 走 GitHub 安裝，pnpm 預設會擋：
 
 ```
-[ERR_PNPM_EXOTIC_SUBDEP] Exotic dependency "uWebSockets.js"
-(resolved via git-repository) is not allowed in subdependencies
+[ERR_PNPM_EXOTIC_SUBDEP] Exotic dependency "uWebSockets.js" ...
 ```
 
-專案根目錄的 `pnpm-workspace.yaml` 解除此限制：
+根目錄的 `pnpm-workspace.yaml` 解除限制：
 
 ```yaml
 blockExoticSubdeps: false
 ```
 
-**此檔案必須提交到 Git，並且必須 COPY 進 Docker build context。** 雖然部署時雲端不會執行 `pnpm install`，但 Docker build 階段會，缺少此檔案 image 就建不起來。
+**必須提交到 Git，也必須 COPY 進 Docker。** 雲端不會 install，但 Docker build 會。
 
-（`.npmrc` 在 pnpm 11 起只讀 auth 與 registry 設定，此項設定放 `.npmrc` 無效。）
+（放 `.npmrc` 無效，pnpm 11 起該檔只讀 auth 設定。）
+
+### Node 版本要固定 22
+
+`uWebSockets.js` 是 native module，綁 Node ABI，build 和 runtime 版本不同會壞。
+
+```json
+"engines": { "node": ">=22 <23" }
+```
+
+`@types/node` 也要對應到 `^22`。
 
 ---
 
 ## 環境變數
 
-```bash
-cp .env.example .env
-```
-
 ```dotenv
-# Neon pooled 連線（runtime 使用）
-# host 需帶 -pooler 後綴
+# runtime 用（host 帶 -pooler）
 DATABASE_URL="postgresql://user:pass@ep-xxx-pooler.region.aws.neon.tech/db?sslmode=require&pgbouncer=true"
 
-# Neon direct 連線（Prisma migrate 使用）
+# migration 用（不帶 -pooler）
 DIRECT_URL="postgresql://user:pass@ep-xxx.region.aws.neon.tech/db?sslmode=require"
 
-# 觸發端點的共用密鑰（本地開發用；GCP 上改用 OIDC）
-TASK_SECRET="change-me"
-
+TASK_SECRET="本機開發用的密鑰"
 PORT=3000
 TZ=UTC
 ```
 
-### 為什麼需要兩條連線字串
-
-Cloud Run 會水平擴展，每個 instance 各自持有連線池。20 個 instance × 池大小 10 = 200 條連線，會超出 Neon 限制。因此 runtime 必須走 pooled 連線（PgBouncer），並把每個 instance 的池開小。
-
-但 PgBouncer 是 transaction mode，DDL 與 prepared statement 行為受限，所以 migration 必須走 direct 連線。
+**為什麼兩條**：Cloud Run 會開多個 instance，各自持有連線池，很容易超出 Neon 上限，所以 runtime 走 pooled。但 pooled 走 PgBouncer，DDL 行為受限，所以 migration 要走 direct。
 
 ```prisma
 datasource db {
@@ -186,171 +180,165 @@ datasource db {
 }
 ```
 
-> Prisma 對 PgBouncer 的支援細節在不同版本間有變動（`pgbouncer=true` 參數、`directUrl` 的行為）。上線前請對照你所使用版本的官方文件確認。
-
-### 時區
-
-容器 `TZ` 設為 `UTC`，資料庫欄位用 `timestamptz`。**交易日的判定必須明確用 `Asia/Taipei` 計算**，不可依賴系統時區——收盤後（台北時間 14:30 後）跑的排程，若用 UTC 判斷會標到前一天。
+> Prisma 對 PgBouncer 的參數在不同版本間有變動，請對照你使用版本的官方文件。
 
 ---
 
-## 資料庫設定
+## 資料庫
 
 ```bash
-# 產生 Prisma Client（每次改 schema 後都要跑）
-pnpm prisma generate
-
-# 本地開發：建立 migration 並套用
-pnpm prisma migrate dev --name init
-
-# 部署環境：只套用既有 migration
-pnpm prisma migrate deploy
+pnpm prisma generate                      # 改完 schema 就要跑
+pnpm prisma migrate dev --name init       # 本機
+pnpm prisma migrate deploy                # 部署時
 ```
 
-**不要使用 `prisma db push`**（原文件建議的做法）。它不產生 migration 檔案，無法追蹤 schema 歷史、無法回溯、也無法在 CI 中重現。僅適合丟棄式的本地實驗。
+**不要用 `prisma db push`**——不產生 migration 檔，無法追蹤也無法回溯。
 
-**不要在容器啟動時跑 migration。** Cloud Run 會同時啟動多個 instance，彼此競爭會導致 migration 狀態損壞。應在 CI/CD 的獨立步驟，或以單獨的 Cloud Run Job 執行。
+**不要在容器啟動時跑 migration**——Cloud Run 多 instance 會互相競爭。
 
-### 建議的核心 schema
+### schema 核心
 
 ```prisma
-// 原始回應落地表
+// 原始回應，出錯時的救命繩
 model TwseRaw {
   id        BigInt   @id @default(autoincrement())
-  source    String   // 'openapi' | 'mi_index' | 'stock_day'
-  dataset   String   // 'STOCK_DAY_ALL'
+  dataset   String
   tradeDate DateTime @db.Date
   fetchedAt DateTime @default(now())
   payload   Json
 
-  @@unique([source, dataset, tradeDate])
+  @@unique([dataset, tradeDate])
   @@map("twse_raw")
 }
 
-// 正規化後的日行情
+// STOCK_DAY_ALL + STOCK_DAY_AVG_ALL
 model DailyPrice {
-  symbol    String
-  tradeDate DateTime @db.Date
-  open      Decimal? @db.Decimal(10, 4)
-  high      Decimal? @db.Decimal(10, 4)
-  low       Decimal? @db.Decimal(10, 4)
-  close     Decimal? @db.Decimal(10, 4)
-  volume    BigInt?
-  turnover  BigInt?
-  updatedAt DateTime @updatedAt
+  symbol      String
+  tradeDate   DateTime @db.Date
+  open        Decimal? @db.Decimal(10, 4)
+  high        Decimal? @db.Decimal(10, 4)
+  low         Decimal? @db.Decimal(10, 4)
+  close       Decimal? @db.Decimal(10, 4)
+  volume      BigInt?
+  turnover    BigInt?
+  monthlyAvg  Decimal? @db.Decimal(10, 4)
 
   @@id([symbol, tradeDate])
   @@map("daily_price")
 }
+
+// BWIBBU_ALL（缺值模式不同，所以分開存）
+model DailyValuation {
+  symbol        String
+  tradeDate     DateTime @db.Date
+  peRatio       Decimal? @db.Decimal(10, 2)
+  pbRatio       Decimal? @db.Decimal(10, 2)
+  dividendYield Decimal? @db.Decimal(10, 2)
+
+  @@id([symbol, tradeDate])
+  @@map("daily_valuation")
+}
 ```
 
-價格一律用 `Decimal`／`NUMERIC`，**不要用 `Float`**。`(symbol, tradeDate)` 複合主鍵讓 upsert 天然具備幂等性，重複觸發與補漏重跑都安全。
+`(symbol, tradeDate)` 複合主鍵讓 upsert 天生幂等，重複觸發、補抓都安全。
+
+估值分開存是因為缺值意義不同：虧損公司沒有本益比、沒發股利的殖利率是 `0`，這跟「沒抓到」不是一回事。混在一張表就分不出來了。
 
 ---
 
 ## 執行
 
 ```bash
-pnpm run dev      # tsx watch，存檔自動重啟
+pnpm run dev        # tsx watch src/index.ts
 pnpm run build
 pnpm run start
+pnpm test
 
-pnpm test         # normalizer 測試
+pnpm run backfill   # 歷史回填，只在本機跑（見最後一節）
+```
+
+```json
+"scripts": {
+  "dev": "tsx watch src/index.ts",
+  "build": "tsc",
+  "start": "node dist/index.js",
+  "test": "vitest run",
+  "backfill": "tsx backfill.ts"
+}
 ```
 
 ---
 
-## API 端點
+## API
 
 ### `GET /healthz`
 
-回傳 `200 OK`。供 Cloud Run 判斷容器就緒，不需驗證。**不要在此端點連 DB**，否則 Neon 冷啟動會讓健康檢查失敗。
+回 200，不驗證。**不要連 DB**，否則 Neon 冷啟動會讓健康檢查失敗。
 
-### `POST /api/tasks/ingest`
-
-觸發資料抓取。**需要驗證**（見下節）。
+### `POST /api/ingest`
 
 ```jsonc
-{
-  "dataset": "STOCK_DAY_ALL",  // 必填
-  "date": "2026-08-15"          // 選填，省略 = 今日（Asia/Taipei）
-}
+{ "date": "2026-08-15" }   // 省略 = 今天（Asia/Taipei）
 ```
 
-回應：
+一次處理三個 dataset。回傳每個的結果：
 
 ```jsonc
 {
-  "dataset": "STOCK_DAY_ALL",
   "tradeDate": "2026-08-15",
-  "rowsUpserted": 1373,
-  "skipped": false        // true 表示非交易日或該日已有資料
+  "results": [
+    { "dataset": "STOCK_DAY_ALL",     "rows": 1373, "ok": true },
+    { "dataset": "BWIBBU_ALL",        "rows": 1201, "ok": true },
+    { "dataset": "STOCK_DAY_AVG_ALL", "rows": 1373, "ok": true }
+  ]
 }
 ```
 
-`date` 參數是刻意設計的：沒有它就無法補抓漏掉的日期、無法重跑特定 dataset。搭配 upsert，重複呼叫同一組參數是安全的。
+**某一個失敗不要讓其他兩個回滾**，各自獨立記錄，補漏時才能只補失敗的。
 
-本地測試：
+`date` 參數是刻意保留的，沒有它就無法補抓漏掉的日期。
+
+本機測試：
 
 ```bash
-curl -X POST http://localhost:3000/api/tasks/ingest \
-  -H "Content-Type: application/json" \
-  -H "X-Task-Secret: change-me" \
-  -d '{"dataset":"STOCK_DAY_ALL"}'
+curl -X POST http://localhost:3000/api/ingest \
+  -H "X-Task-Secret: 你的密鑰"
 ```
 
 ---
 
-## 端點驗證（必要，非選配）
+## 端點驗證（必要）
 
-觸發端點若對外公開，任何人都能無限次呼叫，導致：
+沒驗證的話任何人都能無限觸發，結果是你的 IP 被證交所封鎖、Neon 寫入配額耗盡。
 
-- 你的出口 IP 被證交所封鎖
-- Neon 寫入配額被耗盡
-- Cloud Run 帳單異常
+**本機**：比對 `X-Task-Secret` 標頭。用 `crypto.timingSafeEqual`，不要用 `===`。
 
-### GCP 上：Cloud Scheduler OIDC
+**GCP**：用 Cloud Run 內建的 IAM 驗證，程式不用自己驗 token。
 
 ```bash
-# 1. 建立呼叫用的 service account
 gcloud iam service-accounts create twse-scheduler
 
-# 2. 只授權它呼叫此服務
 gcloud run services add-iam-policy-binding twse-sync \
   --member="serviceAccount:twse-scheduler@PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/run.invoker" \
-  --region=asia-east1
-
-# 3. 部署時關閉未驗證存取
-gcloud run deploy twse-sync --no-allow-unauthenticated ...
+  --role="roles/run.invoker" --region=asia-east1
 ```
 
-Cloud Run 會在請求進入應用程式前完成驗證，你的程式碼不需自行驗 token。
-
-### 本地開發：shared secret
-
-比對 `X-Task-Secret` 標頭與 `TASK_SECRET` 環境變數。比對時使用時間恆定比較（`crypto.timingSafeEqual`），不要用 `===`。
+部署時加 `--no-allow-unauthenticated`。
 
 ---
 
 ## Docker
 
-### Dockerfile
-
 ```dockerfile
-# ---- build ----
 FROM node:22-slim AS build
-
-# uWebSockets.js 透過 GitHub 安裝，pnpm 需要 git
-# openssl 為 Prisma engine 所需
-RUN apt-get update \
- && apt-get install -y --no-install-recommends git ca-certificates openssl \
- && rm -rf /var/lib/apt/lists/*
-
+# git: uWebSockets.js 走 GitHub 安裝
+# openssl: Prisma engine 需要
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git ca-certificates openssl && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
 WORKDIR /app
 
-# pnpm-workspace.yaml 必須存在，否則 blockExoticSubdeps 會擋下安裝
+# pnpm-workspace.yaml 少了會安裝失敗
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
@@ -360,232 +348,155 @@ RUN pnpm prisma generate
 COPY tsconfig.json ./
 COPY src ./src
 RUN pnpm build
-
-# 移除 devDependencies，保留 native binary 與 Prisma engine
 RUN pnpm prune --prod
 
-# ---- runtime ----
 FROM node:22-slim
-
-RUN apt-get update \
- && apt-get install -y --no-install-recommends openssl ca-certificates \
- && rm -rf /var/lib/apt/lists/*
-
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-ENV NODE_ENV=production
-ENV TZ=UTC
-
+ENV NODE_ENV=production TZ=UTC
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY package.json ./
-
 USER node
-CMD ["node", "dist/server.js"]
+CMD ["node", "dist/index.js"]
 ```
 
-### 三個必須遵守的約束
+三個不能改的地方：
 
-1. **base image 用 `node:22-slim`（Debian），不要用 Alpine。** `uWebSockets.js` 提供預編譯的 `.node` binary，musl libc 環境容易對不上；Prisma engine 對 libssl 版本也有要求。
-2. **build stage 與 runtime stage 必須同一個 base image。** native module 綁 Node ABI，直接複製 `node_modules` 的前提是兩者環境相同。
-3. **`prisma generate` 必須在 build 階段執行。** 產生的 client 在 `node_modules/.prisma`，會隨 `node_modules` 一起複製到 runtime。
+1. **用 `node:22-slim`，不要 Alpine** — uWS 的預編譯 binary 和 Prisma engine 都對 musl libc 不友善
+2. **build 和 runtime 同一個 base image** — native module 綁 ABI，直接複製 `node_modules` 的前提是環境相同
+3. **`prisma generate` 要在 build 階段** — 產物在 `node_modules/.prisma`，隨 `node_modules` 一起複製
 
-### `.dockerignore`
+`.dockerignore`：
 
 ```
 node_modules
 dist
 .env
-.env.*
-!.env.example
 .git
 tests
+backfill.ts
 *.md
 ```
 
+`backfill.ts` 在這裡排除，是刻意讓回填的程式碼進不了 production image。
+
 ---
 
-## 部署到 Cloud Run
+## 部署
 
-### 服務端程式碼要求
+程式碼裡必須：
 
 ```ts
-const port = Number(process.env.PORT) || 3000;
-app.listen(port, "0.0.0.0", () => { /* ... */ });
+// src/index.ts
+app.listen(Number(process.env.PORT) || 3000, "0.0.0.0")
 ```
 
-必須綁 `process.env.PORT` 與 `0.0.0.0`。只綁 `localhost` 的話 Cloud Run 判定容器未就緒，部署會失敗。
-
-### 連線字串放 Secret Manager
+只綁 localhost 的話 Cloud Run 判定容器沒起來，部署會失敗。
 
 ```bash
+# 密鑰進 Secret Manager，不要放 image 或明文 env
 echo -n "postgresql://..." | gcloud secrets create twse-database-url --data-file=-
-```
 
-**不要**把 `DATABASE_URL` 寫進 Dockerfile、image、或明文環境變數。
-
-### 部署
-
-```bash
-# Artifact Registry
-gcloud artifacts repositories create twse --repository-format=docker --location=asia-east1
-
-# build & push
-docker build -t asia-east1-docker.pkg.dev/PROJECT_ID/twse/sync:latest .
-docker push asia-east1-docker.pkg.dev/PROJECT_ID/twse/sync:latest
-
-# deploy
 gcloud run deploy twse-sync \
-  --image=asia-east1-docker.pkg.dev/PROJECT_ID/twse/sync:latest \
+  --source . \
   --region=asia-east1 \
   --no-allow-unauthenticated \
   --set-secrets=DATABASE_URL=twse-database-url:latest,DIRECT_URL=twse-direct-url:latest \
   --set-env-vars=TZ=UTC \
   --min-instances=1 \
-  --max-instances=3 \
-  --memory=512Mi
+  --max-instances=3
 ```
 
-**`--min-instances=1`**：Neon 免費／入門方案會 autosuspend，冷啟動需數百 ms 到數秒。常駐一個 instance 可消除此延遲，成本約每月數美金。
+`--min-instances=1`：Neon 入門方案會 autosuspend，冷啟動要數百 ms 到數秒。常駐一個 instance 可以消除，月費約幾美金。
 
-**`--max-instances=3`**：限制連線數上限。這是資料同步服務，不需要高併發，過度擴展只會壓垮 Neon。
+`--max-instances=3`：這是同步服務，不需要高併發，限制擴展避免壓垮 Neon。
 
 ### 排程
 
 ```bash
-gcloud scheduler jobs create http twse-daily-ingest \
+gcloud scheduler jobs create http twse-daily \
   --location=asia-east1 \
   --schedule="30 14 * * 1-5" \
   --time-zone="Asia/Taipei" \
-  --uri="https://twse-sync-xxx.run.app/api/tasks/ingest" \
+  --uri="https://twse-sync-xxx.run.app/api/ingest" \
   --http-method=POST \
-  --headers="Content-Type=application/json" \
-  --message-body='{"dataset":"STOCK_DAY_ALL"}' \
   --oidc-service-account-email="twse-scheduler@PROJECT_ID.iam.gserviceaccount.com"
 ```
 
-`1-5` 只是排除週末，**國定假日與颱風假仍會觸發**。程式需自行判斷是否為交易日（回傳空資料或日期與預期不符時，記為 `skipped` 而非錯誤）。
+`1-5` 只排除週末，**國定假日和颱風假還是會觸發**。程式要自己判斷非交易日（回傳空資料時記為 skipped，不是錯誤）。
 
-### 補漏機制
+### 補漏
 
-Cloud Scheduler 可能漏觸發、Cloud Run 可能失敗、證交所可能延遲發布。因此每日任務應先檢查最近 N 個交易日是否有缺漏，缺則一併補抓。**缺少此機制會導致資料靜默遺失，而 OpenAPI 無法補救。**
+排程可能漏觸發、服務可能失敗、證交所可能延遲發布。每日任務應該先檢查最近幾個交易日有沒有缺，缺了一起補。
 
-### 長時間任務用 Cloud Run Jobs
+**沒有這個機制，資料會靜默遺失，而且補不回來。**
 
-Cloud Run Service 有 request timeout（預設 5 分鐘，最長 60 分鐘）。歷史回填耗時 15~20 分鐘以上，應以 Cloud Run Job 執行：
+---
 
-```bash
-gcloud run jobs create twse-backfill \
-  --image=asia-east1-docker.pkg.dev/PROJECT_ID/twse/sync:latest \
-  --command=node --args=dist/jobs/backfill.js \
-  --task-timeout=3600 \
-  --set-secrets=DATABASE_URL=twse-database-url:latest
-```
+## 資料清理規則
 
-同一個 image、不同 entrypoint。
+| 原始值 | 處理 |
+|---|---|
+| `"1150731"` | 民國年 → `2026-07-31`（前三位 + 1911） |
+| `"1,234,567"` | 去掉逗號再轉數字 |
+| `"--"` / `""` | `null` |
+| `"+"` / `"-"` / `"X"` | 特殊註記，不是數值 |
 
-> 若改以「立即回 202，背景繼續處理」的方式，注意 Cloud Run 在回應送出後會限制 CPU 配額，背景工作可能被凍結。需搭配 `--no-cpu-throttling` 才可靠。
+每個 dataset 的髒法不一樣，要分別驗證。
+
+**這是最需要測試的地方**——出錯不會拋異常，只會靜默寫入錯誤資料，你要等到看盤畫面出現離譜數字才會發現。
+
+估值資料額外注意：虧損公司沒有本益比、沒發股利的殖利率是 `0.00`（跟 null 不同）、ETF 可能整組欄位是空的。
 
 ---
 
 ## 歷史資料回填
 
-`openapi.twse.com.tw` 無法查歷史，需改用 `www.twse.com.tw` 的舊版 API。歷史資料可回溯至民國 99 年 1 月 4 日（2010-01-04）。
+OpenAPI 沒有歷史，要用 `www.twse.com.tw` 的舊版 API。可回溯到 2010-01-04。
 
-### 首選：MI_INDEX（按日期取全市場）
+本機執行：
+
+```bash
+pnpm run backfill
+```
+
+**首選（按日期取全市場）：**
 
 ```
 https://www.twse.com.tw/exchangeReport/MI_INDEX?response=json&date=20250817&type=ALLBUT0999
 ```
 
-`type=ALLBUT0999` 為全部證券（不含權證、牛熊證）。
+一年約 245 次請求。
 
-### 備用：STOCK_DAY（按個股取單月）
+**備用（按個股取單月）：**
 
 ```
 https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&date=20250801&stockNo=2330
 ```
 
-一次僅回傳單一個股的一個月資料。`date` 參數中只有 `yyyyMM` 生效，`dd` 為必填但不影響結果。
+只用來補單一個股的缺漏——按個股跑一年要 12,000 次請求，是上面的 50 倍。
 
-### 請求數量比較
+### 注意事項
 
-| 做法 | 回填一年所需請求數 |
-|---|---|
-| MI_INDEX 按交易日 | 約 245 |
-| STOCK_DAY 按個股 × 月 | 1000 檔 × 12 月 ≈ 12,000 |
-
-回填用 MI_INDEX，`STOCK_DAY` 僅用於補單一個股的缺漏。
-
-### 爬取規範
-
-證交所官網 API 未公開速率上限，但連續高頻請求會被封鎖 IP。
-
-- 請求間隔 **3~5 秒**（一年約 245 天 → 15~20 分鐘）
-- 設定正常的 `User-Agent`
-- 失敗需 exponential backoff 重試
-- 記錄尚未成功的日期以供續跑
-
-**回填建議在本機執行，不要放 Cloud Run。** Cloud Run 出口 IP 為共用，被封鎖會影響其他服務，也可能受他人行為波及。回填為一次性作業，本機跑完直接寫入 Neon 即可。
-
-### ⚠️ MI_INDEX 回應結構歷年變更
-
-早期版本使用 `data1`~`data9` 這類編號欄位，且編號會隨當日區塊數浮動；近年改為 `tables` 陣列。
-
-**不要 hardcode 陣列索引。** 應依 table 的 `title` 尋找「每日收盤行情」區塊，否則跨年份抓取會靜默錯位。實作前建議手動抓取 2010、2018、2025 各一日比對結構。
-
----
-
-## 資料處理注意事項
-
-### 民國年
-
-```
-"1150731" → 2026-07-31
-```
-
-前三位為民國年，加 1911。作為數字比較會得到錯誤結果。
-
-### 所有欄位皆為字串
-
-包含價格與成交量。未轉型直接運算會變成字串串接（`"100" + "200" === "100200"`）。
-
-### 需要清理的值
-
-| 原始值 | 處理 |
-|---|---|
-| `"1,234,567"` | 移除千分位逗號 |
-| `"--"` | `null` |
-| `""` | `null` |
-| `"X"`、`"+"`、`"-"` | 特殊註記，非數值 |
-
-這些規則在不同 dataset 間不一致，**每個 dataset 需獨立驗證**。normalizer 是最需要單元測試的部分——出錯時不會拋出異常，只會靜默寫入錯誤資料。
-
-### 價格未還原除權息
-
-證交所提供的是未調整價格。直接用於計算報酬率或長期均線，會在除權息日看到假跳空。
-
-若需還原，得另外抓取除權息計算結果表（`TWT49U`）自行調整。判斷依據：僅顯示歷史價格 → 不需要；計算技術指標或績效回測 → 必須。
-
-### 上櫃股票
-
-`www.tpex.org.tw` 是完全獨立的 API，欄位命名與格式與證交所不同。本專案目前僅涵蓋上市（TWSE）。
+- **請求間隔 3~5 秒**，官網 API 沒公開上限但會封 IP。一年約 15~20 分鐘
+- **在本機跑，不要放 Cloud Run** — 出口 IP 共用，被封會影響其他服務
+- **`MI_INDEX` 的回應結構歷年改過** — 早期是 `data1`~`data9`（編號還會浮動），近年是 `tables` 陣列。**不要 hardcode 索引**，要按 table 的 `title` 找「每日收盤行情」，否則跨年份會靜默錯位
+- 實作前先手動抓 2010、2018、2025 各一天比對結構
 
 ---
 
 ## 待辦
 
-- [ ] normalizer 單元測試（民國年、千分位、null 值）
-- [ ] 交易日曆（國定假日、颱風假）
-- [ ] 補漏機制（檢查最近 N 個交易日）
-- [ ] 排程失敗告警（Cloud Monitoring）
-- [ ] 結構化 JSON 日誌（供 Cloud Logging 解析）
-- [ ] 歷史回填 script（MI_INDEX）
-- [ ] 除權息還原（視需求）
-- [ ] 上櫃資料（TPEx）
+- [ ] 資料清理的單元測試
+- [ ] 交易日曆（國定假日）
+- [ ] 補漏機制
+- [ ] 排程失敗告警
+- [ ] 除權息資料（不然報酬率是錯的）
+- [ ] 歷史回填
 
 ---
-
-## 授權
 
 MIT
