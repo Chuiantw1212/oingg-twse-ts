@@ -89,7 +89,7 @@ model QuarterlyBalanceSheet {
 
   // Metadata for tracking record timestamps
   createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@id([symbol, year, quarter])
   @@map("quarterly_balance_sheet")
