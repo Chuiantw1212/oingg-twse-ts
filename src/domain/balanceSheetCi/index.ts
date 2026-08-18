@@ -1,21 +1,36 @@
-interface IngestBalanceSheetCiParams {
-  year?: string;
-  quarter?: string;
-}
+import { BalanceSheetCiRecord } from './types';
 
 /**
- * 抓取並儲存資產負債表 (BALANCE_SHEET_CI) 資料。
- * TODO: 實作從 TWSE OpenAPI 或其他來源抓取資料的詳細邏輯。
+ * 抓取並儲存最新一期的資產負債表 (BALANCE_SHEET_CI) 資料。
+ * Fetches data from the TWSE OpenAPI and prepares it for storage.
  *
- * @param params 包含年份和季度的參數
- * @returns 一個表示操作結果的物件
+ * @returns An object representing the result of the operation.
  */
-export const ingestBalanceSheetCi = async (params: IngestBalanceSheetCiParams) => {
-  const { year, quarter } = params;
-  console.log(`Executing ingestBalanceSheetCi with year: ${year || 'N/A'}, quarter: ${quarter || 'N/A'}`);
+export const ingestBalanceSheetCi = async () => {
+  const API_URL = 'https://openapi.twse.com.tw/v1/opendata/t187ap07_X_ci';
+  console.log(`Executing ingestBalanceSheetCi for the latest snapshot from ${API_URL}...`);
 
-  // 在這裡加入實際的資料抓取和儲存邏輯
+  try {
+    const response = await fetch(API_URL);
 
-  // 這是模擬的回應，請替換為實際的執行結果
-  return { dataset: 'BALANCE_SHEET_CI', rows: 0, ok: true, message: 'Mock response: Ingestion logic not implemented yet.' };
+    if (!response.ok) {
+      throw new Error(`Failed to fetch data from TWSE API. Status: ${response.status} ${response.statusText}`);
+    }
+
+    const data: BalanceSheetCiRecord[] = await response.json();
+
+    if (!Array.isArray(data)) {
+      throw new Error('TWSE API response is not an array as expected.');
+    }
+
+    // TODO: Implement the actual database saving logic here.
+    // For example: await db.saveBalanceSheetRecords(data);
+    console.log(`Successfully fetched ${data.length} records. (DB save is a TODO)`);
+
+    return { dataset: 'BALANCE_SHEET_CI', rows: data.length, ok: true, message: `Successfully ingested ${data.length} records.` };
+  } catch (error) {
+    console.error('An error occurred during ingestBalanceSheetCi:', error);
+    const message = error instanceof Error ? error.message : 'An unknown error occurred.';
+    return { dataset: 'BALANCE_SHEET_CI', rows: 0, ok: false, message };
+  }
 };
