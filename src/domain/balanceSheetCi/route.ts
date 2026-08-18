@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'ultimate-express';
+import { Router, Request, Response, NextFunction } from 'ultimate-express';
 import { requireTaskSecret } from '../../shared/middleware';
 import { ingestBalanceSheetCi } from './index';
 
@@ -26,8 +26,8 @@ const router = Router();
  *       401:
  *         description: 未經授權的請求。
  */
-router.post('/balance-sheet-ci', async (req: Request, res: Response) => {
-  if (!requireTaskSecret(req, res)) return;
+router.post('/balance-sheet-ci', async (req: Request, res: Response, next: NextFunction) => {
+  if (!requireTaskSecret(req, res, next)) return;
 
   console.log('[ingest] Triggered for BALANCE_SHEET_CI...');
   const result = await ingestBalanceSheetCi();

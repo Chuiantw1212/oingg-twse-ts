@@ -8,7 +8,7 @@ import { Request, Response, NextFunction } from 'ultimate-express';
  * If the secret is missing or invalid, it sends a 401 Unauthorized response.
  * If the `TASK_SECRET` environment variable is not set, it sends a 500 Server Error.
  */
-export const requireTaskSecret = (req: Request, res: Response, next?: NextFunction) => {
+export const requireTaskSecret = (req: Request, res: Response, next: NextFunction) => {
   const expectedSecret = process.env.TASK_SECRET; // 從環境變數中獲取預期的密鑰
 
   if (!expectedSecret) {

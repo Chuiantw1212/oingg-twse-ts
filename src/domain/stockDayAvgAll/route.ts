@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'ultimate-express';
+import { Router, Request, Response, NextFunction } from 'ultimate-express';
 import { requireTaskSecret } from '../../shared/middleware';
 import { ingestStockDayAvgAll } from './index';
 
@@ -38,8 +38,8 @@ const router = Router();
  *       401:
  *         description: 未經授權的請求。
  */
-router.post('/stock-day-avg-all', async (req: Request, res: Response) => {
-  if (!requireTaskSecret(req, res)) return;
+router.post('/stock-day-avg-all', async (req: Request, res: Response, next: NextFunction) => {
+  if (!requireTaskSecret(req, res, next)) return;
 
   const date = req.body?.date;
   console.log(`[ingest] Triggered for STOCK_DAY_AVG_ALL for date: ${date || 'today'}...`);
