@@ -45,25 +45,24 @@ export function normalizeBwibbuAll(rows: BwibbuAllRow[]): NormalizedDailyValuati
 }
 
 async function upsertDailyValuations(rows: NormalizedDailyValuation[]): Promise<number> {
-  const operations = rows.map((row) =>
-    prisma.dailyValuation.upsert({
-      where: { symbol_tradeDate: { symbol: row.symbol, tradeDate: row.tradeDate } },
-      create: {
-        symbol: row.symbol,
-        tradeDate: row.tradeDate,
-        peRatio: row.peRatio,
-        pbRatio: row.pbRatio,
-        dividendYield: row.dividendYield,
-      },
-      update: {
-        peRatio: row.peRatio,
-        pbRatio: row.pbRatio,
-        dividendYield: row.dividendYield,
-      },
-    })
-  );
-  await prisma.$transaction(operations);
-  return operations.length;
+  const batchSize = 100;
+  let totalUpserted = 0;
+  console.log(`[ingest] BWIBBU_ALL: Starting to upsert ${rows.length} valuation records...`);
+
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batch = rows.slice(i, i + batchSize);
+    const operations = batch.map((row) =>
+      prisma.dailyValuation.upsert({
+        where: { symbol_tradeDate: { symbol: row.symbol, tradeDate: row.tradeDate } },
+        create: { ...row },
+        update: { ...row },
+      })
+    );
+    await prisma.$transaction(operations);
+    totalUpserted += batch.length;
+    console.log(`[ingest] BWIBBU_ALL: Upserted ${totalUpserted}/${rows.length} records.`);
+  }
+  return totalUpserted;
 }
 
 /**
@@ -74,7 +73,9 @@ export async function ingestBwibbuAll(date?: string): Promise<DatasetResult> {
   const dataset = 'BWIBBU_ALL';
   const requestedDate = date ?? getTaipeiTodayISO();
   try {
+    console.log(`[ingest] ${dataset}: Fetching data...`);
     const rawRows = await getBwibbuAll();
+    console.log(`[ingest] ${dataset}: Fetched ${rawRows.length} records.`);
 
     if (!Array.isArray(rawRows) || rawRows.length === 0) {
       return { dataset, rows: 0, ok: true };
@@ -88,9 +89,14 @@ export async function ingestBwibbuAll(date?: string): Promise<DatasetResult> {
       );
     }
 
+    console.log(`[ingest] ${dataset}: Saving raw response for ${actualTradeDateISO}...`);
     await saveRawResponse(dataset, actualTradeDate, rawRows);
+
+    console.log(`[ingest] ${dataset}: Normalizing data...`);
     const normalized = normalizeBwibbuAll(rawRows);
     const rowCount = await upsertDailyValuations(normalized);
+
+    console.log(`[ingest] ${dataset}: Deleting raw response for ${actualTradeDateISO}...`);
     await deleteRawResponse(dataset, actualTradeDate);
 
     console.log(`[ingest] ${dataset}: Successfully processed and deleted raw data for ${actualTradeDateISO}.`);

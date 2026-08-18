@@ -46,23 +46,26 @@ export function normalizeStockDayAvgAll(rows: StockDayAvgRow[]): NormalizedDaily
  * 這樣才能跟 STOCK_DAY_ALL 寫入的欄位共存於同一列（symbol, tradeDate）。
  */
 export async function upsertDailyPrices(rows: NormalizedDailyPrice[]): Promise<number> {
-  const operations = rows.map((row) =>
-    prisma.dailyPrice.upsert({
-      where: { symbol_tradeDate: { symbol: row.symbol, tradeDate: row.tradeDate } },
-      create: {
-        symbol: row.symbol,
-        tradeDate: row.tradeDate,
-        close: row.close,
-        monthlyAvg: row.monthlyAvg,
-      },
-      update: {
-        close: row.close,
-        monthlyAvg: row.monthlyAvg,
-      },
-    })
-  );
-  await prisma.$transaction(operations);
-  return operations.length;
+  const batchSize = 100;
+  let totalUpserted = 0;
+  console.log(`[ingest] STOCK_DAY_AVG_ALL: Starting to upsert ${rows.length} price records...`);
+
+  for (let i = 0; i < rows.length; i += batchSize) {
+    const batch = rows.slice(i, i + batchSize);
+    const operations = batch.map((row) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { symbol, tradeDate, ...updateData } = row;
+      return prisma.dailyPrice.upsert({
+        where: { symbol_tradeDate: { symbol: row.symbol, tradeDate: row.tradeDate } },
+        create: row,
+        update: updateData,
+      });
+    });
+    await prisma.$transaction(operations);
+    totalUpserted += batch.length;
+    console.log(`[ingest] STOCK_DAY_AVG_ALL: Upserted ${totalUpserted}/${rows.length} records.`);
+  }
+  return totalUpserted;
 }
 
 /**
@@ -70,9 +73,12 @@ export async function upsertDailyPrices(rows: NormalizedDailyPrice[]): Promise<n
  * @param {string} [date] - 指定要抓取的日期，格式為 YYYY-MM-DD。如果未提供，則抓取今天的資料（Asia/Taipei）。
  */
 export async function ingestStockDayAvgAll(date?: string): Promise<DatasetResult> {
+  const dataset = 'STOCK_DAY_AVG_ALL';
   const requestedDate = date ?? getTaipeiTodayISO();
   try {
+    console.log(`[ingest] ${dataset}: Fetching data...`);
     const rawRows = await getStockDayAvgAll();
+    console.log(`[ingest] ${dataset}: Fetched ${rawRows.length} records.`);
 
     if (!Array.isArray(rawRows) || rawRows.length === 0) {
       return { dataset: 'STOCK_DAY_AVG_ALL', rows: 0, ok: true };
@@ -84,19 +90,22 @@ export async function ingestStockDayAvgAll(date?: string): Promise<DatasetResult
     const actualTradeDateISO = actualTradeDate.toISOString().slice(0, 10);
     if (actualTradeDateISO !== requestedDate) {
       console.warn(
-        `[ingest] STOCK_DAY_AVG_ALL: requested ${requestedDate} but TWSE OpenAPI only serves today's data (got ${actualTradeDateISO}); historical dates cannot be re-fetched from this endpoint.`
+        `[ingest] ${dataset}: requested ${requestedDate} but TWSE OpenAPI only serves today's data (got ${actualTradeDateISO}); historical dates cannot be re-fetched from this endpoint.`
       );
     }
 
-    await saveRawResponse('STOCK_DAY_AVG_ALL', actualTradeDate, rawRows);
+    console.log(`[ingest] ${dataset}: Saving raw response for ${actualTradeDateISO}...`);
+    await saveRawResponse(dataset, actualTradeDate, rawRows);
 
+    console.log(`[ingest] ${dataset}: Normalizing data...`);
     const normalized = normalizeStockDayAvgAll(rawRows);
     const rowCount = await upsertDailyPrices(normalized);
 
-    await deleteRawResponse('STOCK_DAY_AVG_ALL', actualTradeDate);
-    console.log(`[ingest] STOCK_DAY_AVG_ALL: Successfully processed and deleted raw data for ${actualTradeDateISO}.`);
+    console.log(`[ingest] ${dataset}: Deleting raw response for ${actualTradeDateISO}...`);
+    await deleteRawResponse(dataset, actualTradeDate);
+    console.log(`[ingest] ${dataset}: Successfully processed and deleted raw data for ${actualTradeDateISO}.`);
 
-    return { dataset: 'STOCK_DAY_AVG_ALL', rows: rowCount, ok: true };
+    return { dataset, rows: rowCount, ok: true };
   } catch (error) {
     console.error('[ingest] STOCK_DAY_AVG_ALL failed:', error);
     return { dataset: 'STOCK_DAY_AVG_ALL', rows: 0, ok: false, error: (error as Error).message };
