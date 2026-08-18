@@ -1,7 +1,7 @@
-import { apiClient } from '../twse-client.js';
-import { rocDateToISO, parseTwseNumber, parseTwseBigInt, getTaipeiTodayISO } from '../twse-parse.js';
-import prisma, { saveRawResponse, deleteRawResponse } from '../db.js';
-import { DatasetResult } from '../types.js';
+import { apiClient } from '../twse-client';
+import { rocDateToISO, parseTwseNumber, parseTwseBigInt, getTaipeiTodayISO } from '../twse-parse';
+import prisma, { saveRawResponse, deleteRawResponse } from '../db';
+import { DatasetResult } from '../types';
 
 export interface StockDayAllRow {
   Date: string;
