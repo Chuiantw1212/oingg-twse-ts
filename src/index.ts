@@ -5,6 +5,8 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import { config } from './config';
 import { ingestTwseData } from './ingest';
+import { ingestBwibbuAll } from './datasets/bwibbuAll';
+import { ingestStockDayAvgAll } from './datasets/stockDayAvgAll';
 import { connectDb } from './db';
 import { timingSafeEqual } from 'crypto';
 
@@ -17,6 +19,9 @@ app.use(express.urlencoded({ extended: true }));
 
 // --- Swagger ---
 // apis 用 __dirname 而非固定 'src'，這樣 dev（tsx 跑 src/*.ts）跟 build 後（node 跑 dist/*.js）都找得到同一批 JSDoc 註解。
+// glob 用的路徑一定要是正斜線——Windows 上 path.join 出來的反斜線路徑，swagger-jsdoc 的 glob matcher 完全比對不到，spec 會是空的。
+const toGlob = (...segments: string[]) => path.join(...segments).replace(/\\/g, '/');
+
 const swaggerSpec = swaggerJsdoc({
   definition: {
     openapi: '3.0.0',
@@ -35,7 +40,7 @@ const swaggerSpec = swaggerJsdoc({
       },
     },
   },
-  apis: [path.join(__dirname, '*.ts'), path.join(__dirname, '*.js')],
+  apis: [toGlob(__dirname, '*.ts'), toGlob(__dirname, '*.js')],
 });
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
@@ -53,6 +58,89 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
  */
 app.get('/healthz', (req: Request, res: Response) => {
   res.status(200).send('OK');
+});
+
+/**
+ * 本機開發用的 X-Task-Secret 驗證，失敗時已經回應 401。GCP 上改用 Cloud Run IAM，見 README「端點驗證」。
+ * @returns {boolean} 是否通過驗證，false 時呼叫端應直接 return，不要再往下處理。
+ */
+function requireTaskSecret(req: Request, res: Response): boolean {
+  if (!config.isProduction && config.taskSecret && !config.compareTaskSecret(req.headers['x-task-secret'] as string)) {
+    res.status(401).json({ message: 'Unauthorized: Invalid X-Task-Secret' });
+    return false;
+  }
+  return true;
+}
+
+/**
+ * @swagger
+ * /api/ingest/bwibbu-all:
+ *   post:
+ *     summary: 觸發 BWIBBU_ALL 抓取
+ *     description: 對應 TWSE OpenAPI /exchangeReport/BWIBBU_ALL，跟 /api/ingest 分開觸發，方便單獨驗證這個 dataset 的資料。
+ *     security:
+ *       - TaskSecret: []
+ *     responses:
+ *       200:
+ *         description: 抓取成功。
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 dataset: { type: string, example: "BWIBBU_ALL" }
+ *                 rows: { type: number, example: 1201 }
+ *                 ok: { type: boolean, example: true }
+ *       401:
+ *         description: 未經授權的請求。
+ */
+app.post('/api/ingest/bwibbu-all', async (req: Request, res: Response) => {
+  if (!requireTaskSecret(req, res)) return;
+
+  const result = await ingestBwibbuAll();
+  res.status(result.ok ? 200 : 500).json(result);
+});
+
+/**
+ * @swagger
+ * /api/ingest/stock-day-avg-all:
+ *   post:
+ *     summary: 觸發 STOCK_DAY_AVG_ALL 抓取與儲存
+ *     description: 對應 TWSE OpenAPI /exchangeReport/STOCK_DAY_AVG_ALL，跟 /api/ingest 分開觸發，方便單獨驗證這個 dataset 的資料。
+ *     security:
+ *       - TaskSecret: []
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               date:
+ *                 type: string
+ *                 format: date
+ *                 description: 指定要抓取的日期，格式為 YYYY-MM-DD。如果未提供，則抓取今天的資料（Asia/Taipei）。實際仍取決於 TWSE OpenAPI 只回傳今天的資料。
+ *                 example: "2026-08-15"
+ *     responses:
+ *       200:
+ *         description: 抓取與儲存成功。
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 dataset: { type: string, example: "STOCK_DAY_AVG_ALL" }
+ *                 rows: { type: number, example: 1373 }
+ *                 ok: { type: boolean, example: true }
+ *       401:
+ *         description: 未經授權的請求。
+ */
+app.post('/api/ingest/stock-day-avg-all', async (req: Request, res: Response) => {
+  if (!requireTaskSecret(req, res)) return;
+
+  const { date } = req.body ?? {};
+  const result = await ingestStockDayAvgAll(date);
+  res.status(result.ok ? 200 : 500).json(result);
 });
 
 /**
@@ -101,10 +189,7 @@ app.get('/healthz', (req: Request, res: Response) => {
  *         description: 內部伺服器錯誤。
  */
 app.post('/api/ingest', async (req: Request, res: Response) => {
-  // Local development secret validation
-  if (!config.isProduction && config.taskSecret && !config.compareTaskSecret(req.headers['x-task-secret'] as string)) {
-    return res.status(401).json({ message: 'Unauthorized: Invalid X-Task-Secret' });
-  }
+  if (!requireTaskSecret(req, res)) return;
 
   const { date } = req.body;
   try {
