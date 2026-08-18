@@ -1,9 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "compilerOptions": {
-    // For tsx: allow importing .ts files with extension.
-    "allowImportingTsExtensions": true,
-    // tsx handles transpilation, so we don't need tsc to emit files in dev.
-    "noEmit": true
-  }
-}

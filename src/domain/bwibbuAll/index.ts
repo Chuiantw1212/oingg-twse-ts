@@ -1,25 +1,22 @@
-import { ingestBwibbuAll } from '../bwibbuAll';
-import { ingestStockDayAll } from '../stockDayAll';
-import { ingestStockDayAvgAll } from '../stockDayAvgAll';
-import { ingestBalanceSheetCi } from '../balanceSheetCi';
-import { getTaipeiTodayISO } from '../../adapters/twse/parse';
-import { DatasetResult } from '../../shared/types';
+import { Router } from 'ultimate-express';
+import healthzRouter from '../domain/system/route';
+import ingestBwibbuAllRouter from '../domain/bwibbuAll/route';
+import ingestStockDayAllRouter from '../domain/stockDayAll/route';
+import ingestStockDayAvgAllRouter from '../domain/stockDayAvgAll/route';
+import ingestBalanceSheetCiRouter from '../domain/balanceSheetCi/route';
+import ingestRouter from '../domain/ingestion/route';
+import rootRouter from '../domain/system/root';
 
-/**
- * Orchestrates the ingestion of all TWSE datasets.
- * @param date The specific date to ingest data for. Defaults to today.
- */
-export async function ingestTwseData(date?: string) {
-  const tradeDate = date || getTaipeiTodayISO();
-  console.log(`[ingest] Starting ingestion for all datasets for date: ${tradeDate}`);
+const router = Router();
 
-  const results: DatasetResult[] = await Promise.all([
-    ingestBwibbuAll(tradeDate),
-    ingestStockDayAll(tradeDate),
-    ingestStockDayAvgAll(tradeDate),
-    ingestBalanceSheetCi(), // This dataset is not date-specific
-  ]);
+router.use(rootRouter);
+router.use(healthzRouter);
 
-  console.log(`[ingest] Finished ingestion for all datasets for date: ${tradeDate}`);
-  return { tradeDate, results };
-}
+// All ingestion-related routes are mounted under /api/ingest
+router.use('/api/ingest', ingestRouter);
+router.use('/api/ingest', ingestBwibbuAllRouter);
+router.use('/api/ingest', ingestStockDayAllRouter);
+router.use('/api/ingest', ingestStockDayAvgAllRouter);
+router.use('/api/ingest', ingestBalanceSheetCiRouter);
+
+export default router;
