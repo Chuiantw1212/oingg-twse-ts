@@ -1,14 +1,43 @@
 import express, { Request, Response } from 'ultimate-express';
+import swaggerJsdoc from 'swagger-jsdoc';
+import swaggerUi from 'swagger-ui-express';
+import { fileURLToPath } from 'url';
+import path from 'path';
 import { config } from './config';
 import { ingestTwseData } from './ingest';
 import { connectDb } from './db';
 import { timingSafeEqual } from 'crypto';
 
 const app = express();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // --- Middleware ---
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// --- Swagger ---
+// apis 用 __dirname 而非固定 'src'，這樣 dev（tsx 跑 src/*.ts）跟 build 後（node 跑 dist/*.js）都找得到同一批 JSDoc 註解。
+const swaggerSpec = swaggerJsdoc({
+  definition: {
+    openapi: '3.0.0',
+    info: {
+      title: 'TWSE 資料同步微服務 API',
+      version: '1.0.0',
+      description: '每日從台灣證券交易所抓取盤後資料，存入 Neon Postgres。',
+    },
+    components: {
+      securitySchemes: {
+        TaskSecret: {
+          type: 'apiKey',
+          in: 'header',
+          name: 'X-Task-Secret',
+        },
+      },
+    },
+  },
+  apis: [path.join(__dirname, '*.ts'), path.join(__dirname, '*.js')],
+});
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // --- Routes ---
 
@@ -102,7 +131,7 @@ const startServer = async () => {
   app.listen(port, host, () => {
     console.log(`[server]: Server is running at http://${host}:${port}`);
     if (!config.isProduction) {
-      console.log(`[server]: API docs available at http://localhost:${port}/api-docs (if Swagger is enabled)`);
+      console.log(`[server]: API docs available at http://localhost:${port}/api-docs`);
     }
   });
 };
