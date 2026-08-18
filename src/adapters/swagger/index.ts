@@ -28,8 +28,8 @@ const swaggerSpec = swaggerJsdoc({
     },
   },
   apis: [
-    toGlob(__dirname, '..', 'routes', '*.ts'),
-    toGlob(__dirname, '..', 'domain', '**', 'route.ts'),
+    toGlob(__dirname, '..', '..', 'routes', '*.ts'),
+    toGlob(__dirname, '..', '..', 'domain', '**', 'route.ts'),
   ],
 });
 

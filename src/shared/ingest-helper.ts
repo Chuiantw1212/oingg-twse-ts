@@ -1,6 +1,6 @@
-import { saveRawResponse, deleteRawResponse } from './db';
+import { saveRawResponse, deleteRawResponse } from '../adapters/db';
 import { DatasetResult } from './types';
-import { rocDateToISO } from './twse-parse';
+import { rocDateToISO } from '../adapters/twse/parse';
 
 interface IngestOptions<TRaw, TNormalized> {
   dataset: string;

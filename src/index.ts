@@ -1,7 +1,7 @@
 import express from 'ultimate-express';
-import { swaggerUi, swaggerSpec } from './shared/swagger';
+import { swaggerUi, swaggerSpec } from './adapters/swagger';
 import { config } from './shared/config';
-import { connectDb } from './shared/db';
+import { connectDb } from './adapters/db';
 import routes from './routes';
 
 const app = express();

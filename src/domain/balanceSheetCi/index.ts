@@ -1,6 +1,6 @@
-import { apiClient } from '../../shared/twse-client';
-import { rocDateToISO, parseTwseNumber, parseTwseBigInt } from '../../shared/twse-parse';
-import prisma from '../../shared/db';
+import { apiClient } from '../../adapters/twse/client';
+import { rocDateToISO, parseTwseNumber, parseTwseBigInt } from '../../adapters/twse/parse';
+import prisma from '../../adapters/db';
 import { DatasetResult } from '../../shared/types';
 import { handleDatasetIngestion } from '../../shared/ingest-helper';
 
