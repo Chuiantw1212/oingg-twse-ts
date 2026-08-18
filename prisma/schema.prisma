@@ -55,3 +55,38 @@ model DailyValuation {
   @@id([symbol, tradeDate])
   @@map("daily_valuation")
 }
+
+/// 公發公司資產負債表-一般業
+/// 資料來源:
+/// - /opendata/t187ap07_X_ci
+model QuarterlyBalanceSheet {
+  symbol        String
+  year          Int
+  quarter       Int
+  reportDate    DateTime @db.Date
+
+  currentAssets         BigInt?
+  nonCurrentAssets      BigInt?
+  totalAssets           BigInt?
+  currentLiabilities    BigInt?
+  nonCurrentLiabilities BigInt?
+  totalLiabilities      BigInt?
+  capitalStock          BigInt?
+  equityVirtualCurrency BigInt?
+  capitalSurplus        BigInt?
+  retainedEarnings      BigInt?
+  otherEquity           BigInt?
+  treasuryStock         BigInt?
+  equityToParent        BigInt?
+  commonControlPredecessorEquity BigInt?
+  nonCommonControlPredecessorEquity BigInt?
+  nonControllingInterest            BigInt?
+  totalEquity                        BigInt?
+  sharesAwaitingCancellation         BigInt?
+  equivalentSharesFromPrepayments    BigInt?
+  treasurySharesHeldBySubs           BigInt?
+  bookValuePerShare                  Decimal? @db.Decimal(10, 2)
+
+  @@id([symbol, year, quarter])
+  @@map("quarterly_balance_sheet")
+}

@@ -1,9 +1,9 @@
 import { Router } from 'ultimate-express';
 import healthzRouter from './healthz';
-import ingestBwibbuAllRouter from './ingestBwibbuAll';
-import ingestStockDayAllRouter from './ingestStockDayAll';
-import ingestStockDayAvgAllRouter from './ingestStockDayAvgAll';
-import ingestBalanceSheetCiRouter from '../domain/balanceSheet/route';
+import ingestBwibbuAllRouter from '../domain/bwibbuAll/route';
+import ingestStockDayAllRouter from '../domain/stockDayAll/route';
+import ingestStockDayAvgAllRouter from '../domain/stockDayAvgAll/route';
+import ingestBalanceSheetCiRouter from '../domain/balanceSheetCi/route';
 import ingestRouter from './ingest';
 import rootRouter from './root';
 

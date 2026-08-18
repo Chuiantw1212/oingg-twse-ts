@@ -38,6 +38,7 @@ Cloud Scheduler  →  POST /api/ingest  →  抓 TWSE  →  存 twse_raw  →  �
 | `/exchangeReport/STOCK_DAY_ALL` | `STOCK_DAY_ALL` | 完整：抓取 → 存 `twse_raw` → 正規化 → upsert `daily_price`（開高低收、成交量、成交金額、成交筆數） |
 | `/exchangeReport/STOCK_DAY_AVG_ALL` | `STOCK_DAY_AVG_ALL` | 完整：抓取 → 存 `twse_raw` → 正規化 → upsert `daily_price`（收盤價、月平均價） |
 | `/exchangeReport/BWIBBU_ALL` | `BWIBBU_ALL` | 完整：抓取 → 存 `twse_raw` → 正規化 → upsert `daily_valuation`（本益比、股價淨值比、殖利率） |
+| `/opendata/t187ap07_X_ci` | `BALANCE_SHEET_CI` | 完整：抓取 → 存 `twse_raw` → 正規化 → upsert `quarterly_balance_sheet`（資產負債表） |
 
 `STOCK_DAY_ALL` 跟 `STOCK_DAY_AVG_ALL` 都 upsert 同一張 `daily_price`（複合主鍵 `symbol, tradeDate`），各自只寫自己負責的欄位，不會互相覆蓋。`Change`（漲跌價差）刻意不存——能從前後兩天存好的 `close` 算出來，不屬於「抓不到就永久消失」的資料。
 
@@ -60,6 +61,7 @@ oingg-twse-ts/
 │   ├── twse-parse.ts            # 共用純函式：rocDateToISO、parseTwseNumber、getTaipeiTodayISO
 │   ├── types.ts                 # DatasetResult
 │   └── datasets/
+│       ├── balanceSheetCi.ts    # t187ap07_X_ci 的 fetch + ingest，全部在這個檔案
 │       ├── bwibbuAll.ts         # BWIBBU_ALL 的 fetch + ingest，全部在這個檔案
 │       ├── stockDayAll.ts       # STOCK_DAY_ALL 的 fetch + normalize + upsert + ingest，全部在這個檔案
 │       └── stockDayAvgAll.ts    # STOCK_DAY_AVG_ALL 的 fetch + normalize + upsert + ingest，全部在這個檔案
