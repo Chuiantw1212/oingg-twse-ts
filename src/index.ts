@@ -1,20 +1,29 @@
-import { Router } from 'ultimate-express';
-import healthzRouter from './healthz';
-import ingestBwibbuAllRouter from './ingestBwibbuAll';
-import ingestStockDayAllRouter from './ingestStockDayAll';
-import ingestStockDayAvgAllRouter from './ingestStockDayAvgAll';
-import ingestBalanceSheetCiRouter from '../domain/balanceSheet/route';
-import ingestRouter from './ingest';
-import rootRouter from './root';
+import express from 'ultimate-express';
+import { swaggerUi, swaggerSpec } from './shared/swagger';
+import { config } from './shared/config';
+import { connectDb } from './shared/db';
+import routes from './routes';
 
-const router = Router();
+const app = express();
 
-router.use(rootRouter);
-router.use(healthzRouter);
-router.use('/api/ingest', ingestRouter);
-router.use('/api/ingest', ingestBwibbuAllRouter);
-router.use('/api/ingest', ingestStockDayAllRouter);
-router.use('/api/ingest', ingestStockDayAvgAllRouter);
-router.use('/api/ingest', ingestBalanceSheetCiRouter);
+// --- Middleware ---
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-export default router;
+// --- Routes ---
+app.use(routes);
+
+// --- Server Start ---
+const startServer = async () => {
+  await connectDb(); // Connect to DB on startup
+  const host = config.isProduction ? '0.0.0.0' : 'localhost';
+  const port = Number(config.port);
+  app.listen(port, host, () => {
+    console.log(`[server]: Server is running at http://${host}:${port}`);
+    if (!config.isProduction) {
+      console.log(`[server]: API docs available at http://localhost:${port}/api-docs`);
+    }
+  });
+};
+startServer();
