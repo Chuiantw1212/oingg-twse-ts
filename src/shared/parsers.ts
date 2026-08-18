@@ -5,10 +5,12 @@
  * @returns A BigInt or null if parsing fails.
  */
 export const parseBigIntInThousands = (value: string): bigint | null => {
-  if (!value || typeof value !== 'string') return null;
+  if (!value || typeof value !== 'string' || value.trim() === '') return null;
   try {
+    // Remove commas and take the integer part before any decimal point.
+    const integerPart = value.replace(/,/g, '').split('.')[0];
     // The values from the API are in thousands, so we multiply by 1000.
-    return BigInt(value.replace(/,/g, '')) * 1000n;
+    return BigInt(integerPart) * 1000n;
   } catch {
     return null;
   }

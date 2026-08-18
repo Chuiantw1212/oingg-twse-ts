@@ -4,6 +4,16 @@ import { db } from '../../adapters/db';
 import { parseBigIntInThousands, parseNumeric, parseRocDate } from '../../shared/parsers';
 
 /**
+ * Custom error class to carry a suggested HTTP status code for API responses.
+ */
+class IngestError extends Error {
+  constructor(public message: string, public status: number = 500) {
+    super(message);
+    this.name = 'IngestError';
+  }
+}
+
+/**
  * 抓取並儲存最新一期的資產負債表 (BALANCE_SHEET_CI) 資料。
  * This function now performs an ETL (Extract, Transform, Load) process directly
  * into the final `quarterly_balance_sheet` table, with progress logging.
@@ -18,13 +28,19 @@ export const ingestBalanceSheetCi = async () => {
     const response = await fetch(API_URL);
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch data from TWSE API. Status: ${response.status} ${response.statusText}`);
+      const errorBody = await response.text().catch(() => '(Could not read error body)');
+      // When an upstream service fails, 502 Bad Gateway is more appropriate than 500.
+      throw new IngestError(
+        `Failed to fetch data from TWSE API. Status: ${response.status} ${response.statusText}. Body: ${errorBody.slice(0, 500)}`,
+        502
+      );
     }
 
     const rawData: BalanceSheetCiRecord[] = await response.json();
 
     if (!Array.isArray(rawData)) {
-      throw new Error('TWSE API response is not an array as expected.');
+      // This is a data format violation from the upstream service, which is also a "Bad Gateway" situation.
+      throw new IngestError('TWSE API response is not an array as expected.', 502);
     }
 
     // Log the first record to verify the format before processing
@@ -71,7 +87,7 @@ export const ingestBalanceSheetCi = async () => {
           treasurySharesHeldBySubs: parseBigIntInThousands(record['母公司暨子公司所持有之母公司庫藏股股數（單位：股）']),
           bookValuePerShare: parseNumeric(record.每股參考淨值),
         }))
-        .filter(r => r.symbol && !isNaN(r.year) && !isNaN(r.quarter)); // Filter out records with invalid primary key components
+        .filter(r => r.symbol && !isNaN(r.year) && !isNaN(r.quarter) && r.reportDate); // Also filter out records where reportDate could not be parsed.
 
       if (transformedBatch.length === 0) {
         console.log(`[Progress] Skipped empty or invalid batch at index ${i}.`);
@@ -146,7 +162,12 @@ export const ingestBalanceSheetCi = async () => {
     };
   } catch (error) {
     console.error('An error occurred during ingestBalanceSheetCi:', error);
+    // If it's our custom error, we can use the status it carries.
+    if (error instanceof IngestError) {
+      return { dataset: 'BALANCE_SHEET_CI', rows: 0, ok: false, message: error.message, status: error.status };
+    }
+    // For all other errors, it's a genuine internal server error.
     const message = error instanceof Error ? error.message : 'An unknown error occurred.';
-    return { dataset: 'BALANCE_SHEET_CI', rows: 0, ok: false, message };
+    return { dataset: 'BALANCE_SHEET_CI', rows: 0, ok: false, message, status: 500 };
   }
 };

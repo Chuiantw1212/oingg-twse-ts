@@ -22,7 +22,9 @@ router.post('/balance-sheet-ci', requireTaskSecret, async (req: Request, res: Re
   console.log(`[ingest] Triggered for BALANCE_SHEET_CI (latest snapshot)...`);
   const result = await ingestBalanceSheetCi();
   console.log(`[ingest] Finished BALANCE_SHEET_CI. ok: ${result.ok}, rows: ${result.rows}`);
-  res.status(result.ok ? 200 : 500).json(result);
+  // Use the status from the result if available, otherwise default to 500 for errors.
+  const responseStatus = result.ok ? 200 : (result.status || 500);
+  res.status(responseStatus).json(result);
 });
 
 export default router;
