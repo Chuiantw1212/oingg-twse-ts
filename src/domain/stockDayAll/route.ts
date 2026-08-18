@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'ultimate-express';
-import { requireTaskSecret } from '../../middleware';
+import { requireTaskSecret } from '../../shared/middleware';
 import { ingestStockDayAll } from './index';
 
 const router = Router();
