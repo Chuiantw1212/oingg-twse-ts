@@ -1,4 +1,4 @@
-import { saveRawResponse, deleteRawResponse } from '../adapters/db';
+import { saveRawResponse, deleteRawResponse } from '../adapters/db/index';
 import { DatasetResult } from './types';
 import { rocDateToISO } from '../adapters/twse/parse';
 

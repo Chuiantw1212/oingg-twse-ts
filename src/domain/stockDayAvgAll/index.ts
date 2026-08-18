@@ -1,6 +1,6 @@
 import { apiClient } from '../../adapters/twse/client';
 import { rocDateToISO, parseTwseNumber, getTaipeiTodayISO } from '../../adapters/twse/parse';
-import prisma from '../../adapters/db';
+import prisma from '../../adapters/db/index';
 import { DatasetResult } from '../../shared/types';
 import { handleDatasetIngestion } from '../../shared/ingest-helper';
 

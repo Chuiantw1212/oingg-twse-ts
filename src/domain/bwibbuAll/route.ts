@@ -26,9 +26,7 @@ const router = Router();
  *       401:
  *         description: 未經授權的請求。
  */
-router.post('/bwibbu-all', async (req: Request, res: Response) => {
-  if (!requireTaskSecret(req, res)) return;
-
+router.post('/bwibbu-all', requireTaskSecret, async (req: Request, res: Response) => {
   console.log('[ingest] Triggered for BWIBBU_ALL...');
   const result = await ingestBwibbuAll();
   console.log(`[ingest] Finished BWIBBU_ALL. ok: ${result.ok}, rows: ${result.rows}`);
