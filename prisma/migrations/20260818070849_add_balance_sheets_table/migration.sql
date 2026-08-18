@@ -1,0 +1,30 @@
+-- CreateTable
+CREATE TABLE "quarterly_balance_sheet" (
+    "symbol" TEXT NOT NULL,
+    "year" INTEGER NOT NULL,
+    "quarter" INTEGER NOT NULL,
+    "reportDate" DATE NOT NULL,
+    "currentAssets" BIGINT,
+    "nonCurrentAssets" BIGINT,
+    "totalAssets" BIGINT,
+    "currentLiabilities" BIGINT,
+    "nonCurrentLiabilities" BIGINT,
+    "totalLiabilities" BIGINT,
+    "capitalStock" BIGINT,
+    "equityVirtualCurrency" BIGINT,
+    "capitalSurplus" BIGINT,
+    "retainedEarnings" BIGINT,
+    "otherEquity" BIGINT,
+    "treasuryStock" BIGINT,
+    "equityToParent" BIGINT,
+    "commonControlPredecessorEquity" BIGINT,
+    "nonCommonControlPredecessorEquity" BIGINT,
+    "nonControllingInterest" BIGINT,
+    "totalEquity" BIGINT,
+    "sharesAwaitingCancellation" BIGINT,
+    "equivalentSharesFromPrepayments" BIGINT,
+    "treasurySharesHeldBySubs" BIGINT,
+    "bookValuePerShare" DECIMAL(10,2),
+
+    CONSTRAINT "quarterly_balance_sheet_pkey" PRIMARY KEY ("symbol","year","quarter")
+);

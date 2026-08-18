@@ -63,29 +63,33 @@ model QuarterlyBalanceSheet {
   symbol        String
   year          Int
   quarter       Int
-  reportDate    DateTime @db.Date
+  reportDate    DateTime @db.Date @map("report_date")
 
-  currentAssets         BigInt?
-  nonCurrentAssets      BigInt?
-  totalAssets           BigInt?
-  currentLiabilities    BigInt?
-  nonCurrentLiabilities BigInt?
-  totalLiabilities      BigInt?
-  capitalStock          BigInt?
-  equityVirtualCurrency BigInt?
-  capitalSurplus        BigInt?
-  retainedEarnings      BigInt?
-  otherEquity           BigInt?
-  treasuryStock         BigInt?
-  equityToParent        BigInt?
-  commonControlPredecessorEquity BigInt?
-  nonCommonControlPredecessorEquity BigInt?
-  nonControllingInterest            BigInt?
-  totalEquity                        BigInt?
-  sharesAwaitingCancellation         BigInt?
-  equivalentSharesFromPrepayments    BigInt?
-  treasurySharesHeldBySubs           BigInt?
-  bookValuePerShare                  Decimal? @db.Decimal(10, 2)
+  currentAssets         BigInt?   @map("current_assets")
+  nonCurrentAssets      BigInt?   @map("non_current_assets")
+  totalAssets           BigInt?   @map("total_assets")
+  currentLiabilities    BigInt?   @map("current_liabilities")
+  nonCurrentLiabilities BigInt?   @map("non_current_liabilities")
+  totalLiabilities      BigInt?   @map("total_liabilities")
+  capitalStock          BigInt?   @map("capital_stock")
+  equityVirtualCurrency BigInt?   @map("equity_virtual_currency")
+  capitalSurplus        BigInt?   @map("capital_surplus")
+  retainedEarnings      BigInt?   @map("retained_earnings")
+  otherEquity           BigInt?   @map("other_equity")
+  treasuryStock         BigInt?   @map("treasury_stock")
+  equityToParent        BigInt?   @map("equity_to_parent")
+  commonControlPredecessorEquity BigInt? @map("common_control_predecessor_equity")
+  nonCommonControlPredecessorEquity BigInt? @map("non_common_control_predecessor_equity")
+  nonControllingInterest            BigInt?   @map("non_controlling_interest")
+  totalEquity                        BigInt?   @map("total_equity")
+  sharesAwaitingCancellation         BigInt?   @map("shares_awaiting_cancellation")
+  equivalentSharesFromPrepayments    BigInt?   @map("equivalent_shares_from_prepayments")
+  treasurySharesHeldBySubs           BigInt?   @map("treasury_shares_held_by_subs")
+  bookValuePerShare                  Decimal?  @db.Decimal(10, 2) @map("book_value_per_share")
+
+  // Metadata for tracking record timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@id([symbol, year, quarter])
   @@map("quarterly_balance_sheet")
