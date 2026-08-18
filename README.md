@@ -35,8 +35,11 @@ Cloud Scheduler  →  POST /api/ingest  →  抓 TWSE  →  存 twse_raw  →  �
 
 | TWSE 端點 | dataset | 狀態 |
 |---|---|---|
+| `/exchangeReport/STOCK_DAY_ALL` | `STOCK_DAY_ALL` | 完整：抓取 → 存 `twse_raw` → 正規化 → upsert `daily_price`（開高低收、成交量、成交金額、成交筆數） |
 | `/exchangeReport/STOCK_DAY_AVG_ALL` | `STOCK_DAY_AVG_ALL` | 完整：抓取 → 存 `twse_raw` → 正規化 → upsert `daily_price`（收盤價、月平均價） |
-| `/exchangeReport/BWIBBU_ALL` | `BWIBBU_ALL` | 只做了抓取，還沒清理欄位、沒存 `twse_raw`、沒 upsert `daily_valuation`（見「待辦」） |
+| `/exchangeReport/BWIBBU_ALL` | `BWIBBU_ALL` | 完整：抓取 → 存 `twse_raw` → 正規化 → upsert `daily_valuation`（本益比、股價淨值比、殖利率） |
+
+`STOCK_DAY_ALL` 跟 `STOCK_DAY_AVG_ALL` 都 upsert 同一張 `daily_price`（複合主鍵 `symbol, tradeDate`），各自只寫自己負責的欄位，不會互相覆蓋。`Change`（漲跌價差）刻意不存——能從前後兩天存好的 `close` 算出來，不屬於「抓不到就永久消失」的資料。
 
 判斷要不要抓某個 dataset 的標準：**能不能從已有資料算出來？** 不能就抓，因為明天就沒了。
 
@@ -58,6 +61,7 @@ oingg-twse-ts/
 │   ├── types.ts                 # DatasetResult
 │   └── datasets/
 │       ├── bwibbuAll.ts         # BWIBBU_ALL 的 fetch + ingest，全部在這個檔案
+│       ├── stockDayAll.ts       # STOCK_DAY_ALL 的 fetch + normalize + upsert + ingest，全部在這個檔案
 │       └── stockDayAvgAll.ts    # STOCK_DAY_AVG_ALL 的 fetch + normalize + upsert + ingest，全部在這個檔案
 ├── NEON.md                      # Neon pooled/direct 連線細節
 ├── pnpm-workspace.yaml           # 必要，見「安裝」
@@ -67,7 +71,7 @@ oingg-twse-ts/
 
 **每個 dataset 一個檔案**：要追某個 dataset 的完整流程（抓 → 清理 → 存），打開 `datasets/` 底下對應的檔案就好，不用在好幾個檔案之間跳來跳去。`twse-client.ts`、`twse-parse.ts`、`db.ts` 只放真正跨 dataset 共用、不屬於任何單一 dataset 的東西（HTTP client 設定、日期/數字清理函式、raw 落地）。
 
-**還沒建，也先不要建**：通用的 `Dataset` 介面或 `datasets/index.ts` 註冊陣列。現在只有兩個 dataset，而且一個還沒做完，共通的形狀還看不出來，這時候硬套介面只會讓程式碼為了遷就錯的介面而寫歪。等第三個 dataset 進來、需求明確了再抽一次。
+**還沒建，也先不要建**：通用的 `Dataset` 介面或 `datasets/index.ts` 註冊陣列。雖然現在有三個 dataset 了，但 `BWIBBU_ALL` 還沒做完（沒有 normalize/upsert），共通的形狀還沒被三個「完整」實作驗證過，這時候硬套介面只會讓程式碼為了遷就錯的介面而寫歪。等 `BWIBBU_ALL` 也做完、三個都是完整流程時再抽一次——`stockDayAll.ts` 跟 `stockDayAvgAll.ts` 兩個已經長得很像，是很好的先驗信號，但還不夠。
 
 ---
 
@@ -197,16 +201,18 @@ model TwseRaw {
 }
 
 // STOCK_DAY_ALL + STOCK_DAY_AVG_ALL
+// Change（漲跌價差）刻意不存：能從前後兩天的 close 算出來，不屬於「抓不到就永久消失」的資料。
 model DailyPrice {
-  symbol     String
-  tradeDate  DateTime @db.Date
-  open       Decimal? @db.Decimal(10, 4)
-  high       Decimal? @db.Decimal(10, 4)
-  low        Decimal? @db.Decimal(10, 4)
-  close      Decimal? @db.Decimal(10, 4)
-  volume     BigInt?
-  turnover   BigInt?
-  monthlyAvg Decimal? @db.Decimal(10, 4)
+  symbol      String
+  tradeDate   DateTime @db.Date
+  open        Decimal? @db.Decimal(10, 4)
+  high        Decimal? @db.Decimal(10, 4)
+  low         Decimal? @db.Decimal(10, 4)
+  close       Decimal? @db.Decimal(10, 4)
+  volume      BigInt?
+  turnover    BigInt?
+  transaction BigInt?
+  monthlyAvg  Decimal? @db.Decimal(10, 4)
 
   @@id([symbol, tradeDate])
   @@map("daily_price")
@@ -262,11 +268,22 @@ Swagger UI：`GET /api-docs`（spec 直接從 `src/index.ts` 的 `@swagger` JSDo
 {
   "tradeDate": "2026-08-15",
   "results": [
+    { "dataset": "STOCK_DAY_ALL",     "rows": 1373, "ok": true },
     { "dataset": "STOCK_DAY_AVG_ALL", "rows": 1373, "ok": true },
     { "dataset": "BWIBBU_ALL",        "rows": 1201, "ok": true }
   ]
 }
 ```
+
+### `POST /api/ingest/stock-day-all`
+
+只觸發 `STOCK_DAY_ALL`，方便單獨驗證這個 dataset 的資料：
+
+```jsonc
+{ "date": "2026-08-15" }   // 選填，省略 = 今天
+```
+
+回傳單一 dataset 的結果，例如 `{ "dataset": "STOCK_DAY_ALL", "rows": 1373, "ok": true }`。
 
 ### `POST /api/ingest/stock-day-avg-all`
 
@@ -311,7 +328,7 @@ curl -X POST http://localhost:3000/api/ingest/stock-day-avg-all \
 | `"--"` / `""` | `null` |
 | `"+"` / `"-"` / `"X"` | 特殊註記，不是數值 |
 
-實作在 `src/twse-parse.ts`（`rocDateToISO`、`parseTwseNumber`），目前只有 `datasets/stockDayAvgAll.ts` 在用。`BWIBBU_ALL` 還沒接上這些清理函式。
+實作在 `src/twse-parse.ts`（`rocDateToISO`、`parseTwseNumber`、`parseTwseBigInt`），`datasets/stockDayAll.ts` 跟 `datasets/stockDayAvgAll.ts` 都在用。`parseTwseBigInt` 是 `parseTwseNumber` 的變體：規則一樣，但轉成 `bigint`，因為 Prisma 的 `BigInt` 欄位（`volume`/`turnover`/`transaction`）吃 `bigint | number`，不吃字串，不能直接沿用 `parseTwseNumber` 的回傳值。`BWIBBU_ALL` 還沒接上這些清理函式。
 
 **這是最需要測試的地方**——出錯不會拋異常，只會靜默寫入錯誤資料，你要等到看盤畫面出現離譜數字才會發現。
 
@@ -321,7 +338,7 @@ curl -X POST http://localhost:3000/api/ingest/stock-day-avg-all \
 
 ## 待辦
 
-- [ ] `BWIBBU_ALL` 完整實作：存 `twse_raw`、正規化、upsert `daily_valuation`
+- [x] `BWIBBU_ALL` 完整實作：存 `twse_raw`、正規化、upsert `daily_valuation`
 - [ ] 資料清理函式（`twse-parse.ts`）的單元測試
 - [ ] Dockerfile、Cloud Run 部署設定
 - [ ] `.env.example`

@@ -8,7 +8,8 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
-// 原始回應，出錯時的救命繩
+/// 儲存所有 TWSE OpenAPI 的原始 JSON 回應，作為備份與重跑的基礎。
+/// - dataset: 來源端點的 dataset 名稱，例如 "STOCK_DAY_ALL"。
 model TwseRaw {
   id        BigInt   @id @default(autoincrement())
   dataset   String
@@ -20,23 +21,30 @@ model TwseRaw {
   @@map("twse_raw")
 }
 
-// STOCK_DAY_ALL + STOCK_DAY_AVG_ALL
+/// 正規化後的每日價量資料。
+/// Change（漲跌價差）刻意不存：能從前後兩天存好的 close 算出來，不屬於「抓不到就永久消失」的資料。
+/// 資料來源 (複數):
+/// - /exchangeReport/STOCK_DAY_ALL (開、高、低、收、成交量、成交金額、成交筆數)
+/// - /exchangeReport/STOCK_DAY_AVG_ALL (收、月均價)
 model DailyPrice {
-  symbol     String
-  tradeDate  DateTime @db.Date
-  open       Decimal? @db.Decimal(10, 4)
-  high       Decimal? @db.Decimal(10, 4)
-  low        Decimal? @db.Decimal(10, 4)
-  close      Decimal? @db.Decimal(10, 4)
-  volume     BigInt?
-  turnover   BigInt?
-  monthlyAvg Decimal? @db.Decimal(10, 4)
+  symbol      String
+  tradeDate   DateTime @db.Date
+  open        Decimal? @db.Decimal(10, 4)
+  high        Decimal? @db.Decimal(10, 4)
+  low         Decimal? @db.Decimal(10, 4)
+  close       Decimal? @db.Decimal(10, 4)
+  volume      BigInt?
+  turnover    BigInt?
+  transaction BigInt?
+  monthlyAvg  Decimal? @db.Decimal(10, 4)
 
   @@id([symbol, tradeDate])
   @@map("daily_price")
 }
 
-// BWIBBU_ALL（缺值模式不同，所以分開存）
+/// 正規化後的每日估值資料。與價格分開存，因為缺值模式不同。
+/// 資料來源:
+/// - /exchangeReport/BWIBBU_ALL (本益比、股價淨值比、殖利率)
 model DailyValuation {
   symbol        String
   tradeDate     DateTime @db.Date

@@ -19,4 +19,13 @@ export async function saveRawResponse(dataset: string, tradeDate: Date, payload:
   });
 }
 
+/**
+ * 正規化、寫入成功後，刪除 `twse_raw` 裡的原始回應以節省空間。
+ */
+export async function deleteRawResponse(dataset: string, tradeDate: Date): Promise<void> {
+  await prisma.twseRaw.delete({
+    where: { dataset_tradeDate: { dataset, tradeDate } },
+  });
+}
+
 export default prisma;

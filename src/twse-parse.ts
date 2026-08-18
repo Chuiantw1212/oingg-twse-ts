@@ -23,6 +23,16 @@ export function parseTwseNumber(value: string | null | undefined): string | null
 }
 
 /**
+ * 跟 parseTwseNumber 一樣的清理規則，但轉成 bigint——Prisma 的 BigInt 欄位（volume/turnover/transaction
+ * 這類整數量）吃 bigint | number，不吃 string，不能直接沿用 parseTwseNumber 的回傳值。
+ */
+export function parseTwseBigInt(value: string | null | undefined): bigint | null {
+  const cleaned = parseTwseNumber(value);
+  if (cleaned === null) return null;
+  return BigInt(cleaned);
+}
+
+/**
  * 取得 Asia/Taipei 當地的今天日期（YYYY-MM-DD）。用 Intl 取得該時區的曆法日期，
  * 不能用 new Date() 直接取值，因為容器 TZ=UTC，本地時間不等於台北時間。
  */

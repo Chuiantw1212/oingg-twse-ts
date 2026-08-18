@@ -1,5 +1,6 @@
 import { ingestBwibbuAll } from './datasets/bwibbuAll';
 import { ingestStockDayAvgAll } from './datasets/stockDayAvgAll';
+import { ingestStockDayAll } from './datasets/stockDayAll';
 import { getTaipeiTodayISO } from './twse-parse';
 import { DatasetResult } from './types';
 
@@ -13,7 +14,7 @@ export async function ingestTwseData(date?: string): Promise<{ tradeDate: string
   const requestedDate = date ?? getTaipeiTodayISO();
   console.log(`Starting data ingestion for date: ${requestedDate}`);
 
-  const results = await Promise.all([ingestStockDayAvgAll(requestedDate), ingestBwibbuAll()]);
+  const results = await Promise.all([ingestStockDayAll(requestedDate), ingestStockDayAvgAll(requestedDate), ingestBwibbuAll()]);
 
   return { tradeDate: requestedDate, results };
 }

@@ -1,7 +1,7 @@
-import { apiClient } from '../twse-client';
-import { rocDateToISO, parseTwseNumber, getTaipeiTodayISO } from '../twse-parse';
-import prisma, { saveRawResponse } from '../db';
-import { DatasetResult } from '../types';
+import { apiClient } from '../twse-client.js';
+import { rocDateToISO, parseTwseNumber, getTaipeiTodayISO } from '../twse-parse.js';
+import prisma, { saveRawResponse, deleteRawResponse } from '../db.js';
+import { DatasetResult } from '../types.js';
 
 export interface StockDayAvgRow {
   Date: string;
@@ -92,6 +92,9 @@ export async function ingestStockDayAvgAll(date?: string): Promise<DatasetResult
 
     const normalized = normalizeStockDayAvgAll(rawRows);
     const rowCount = await upsertDailyPrices(normalized);
+
+    await deleteRawResponse('STOCK_DAY_AVG_ALL', actualTradeDate);
+    console.log(`[ingest] STOCK_DAY_AVG_ALL: Successfully processed and deleted raw data for ${actualTradeDateISO}.`);
 
     return { dataset: 'STOCK_DAY_AVG_ALL', rows: rowCount, ok: true };
   } catch (error) {
