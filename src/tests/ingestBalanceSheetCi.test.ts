@@ -1,5 +1,5 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { ingestBalanceSheetCi } from '../domain/balanceSheetCi';
+import { ingestBalanceSheetCi } from '../domains/balanceSheetCi';
 import { db } from '../adapters/db';
 
 // Mock the entire database adapter module

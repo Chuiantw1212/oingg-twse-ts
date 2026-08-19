@@ -1,10 +1,10 @@
 import { Router } from 'ultimate-express';
-import healthzRouter from './domain/system/route';
-import ingestBwibbuAllRouter from './domain/bwibbuAll/route';
-import ingestStockDayAllRouter from './domain/stockDayAll/route';
-import ingestStockDayAvgAllRouter from './domain/stockDayAvgAll/route';
-import ingestBalanceSheetCiRouter from './domain/balanceSheetCi/route';
-import rootRouter from './domain/system/root';
+import healthzRouter from './domains/system/route';
+import ingestBwibbuAllRouter from './domains/bwibbuAll/route';
+import ingestStockDayAllRouter from './domains/stockDayAll/route';
+import ingestStockDayAvgAllRouter from './domains/stockDayAvgAll/route';
+import ingestBalanceSheetCiRouter from './domains/balanceSheetCi/route';
+import rootRouter from './domains/system/root';
 
 const router = Router();
 
