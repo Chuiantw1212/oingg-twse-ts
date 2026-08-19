@@ -27,8 +27,7 @@ const swaggerSpec = swaggerJsdoc({
     },
   },
   apis: [
-    toGlob(__dirname, '..', '..', 'domains', '**', 'route.ts'),
-    toGlob(__dirname, '..', '..', 'routes', '*.ts'),
+    toGlob(__dirname, '..', '..', 'domains', '**', '*.ts'),
   ],
 });
 
