@@ -5,6 +5,7 @@ import ingestStockDayAllRouter from './domains/stockDayAll/route';
 // TODO: stockDayAvgAll domain not implemented yet (index.ts/route.ts empty)
 // import ingestStockDayAvgAllRouter from './domains/stockDayAvgAll/route';
 import ingestCompanyProfileRouter from './domains/companyProfile/route';
+import ingestCompanyProfilePublicRouter from './domains/companyProfilePublic/route';
 import rootRouter from './domains/system/root';
 
 const router = Router();
@@ -19,6 +20,7 @@ apiRouter.use(ingestBwibbuAllRouter);
 apiRouter.use(ingestStockDayAllRouter);
 // apiRouter.use(ingestStockDayAvgAllRouter);
 apiRouter.use(ingestCompanyProfileRouter);
+apiRouter.use(ingestCompanyProfilePublicRouter);
 
 router.use('/api/ingest', apiRouter);
 
