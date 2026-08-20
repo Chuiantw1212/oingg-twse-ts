@@ -1,6 +1,6 @@
 import { apiClient } from '../../adapters/twse/client';
 import { rocDateToISO, parseTwseNumber, getTaipeiTodayISO } from '../../adapters/twse/parse';
-import prisma from '../../adapters/db/index';
+import { db as prisma } from '../../adapters/db/index';
 import { DatasetResult } from '../../shared/types';
 import { handleDatasetIngestion } from '../../shared/ingest-helper';
 
@@ -61,7 +61,9 @@ async function upsertDailyValuations(rows: NormalizedDailyValuation[]): Promise<
         update: updateData,
       });
     });
-    await prisma.$transaction(operations);
+    // Neon pooled connections can be slow enough (cold start, latency) that 100 sequential
+    // upserts blow past Prisma's default 5s transaction timeout — see NEON.md.
+    await prisma.$transaction(operations, { timeout: 30000 });
     totalUpserted += batch.length;
     console.log(`[ingest] BWIBBU_ALL: Upserted ${totalUpserted}/${rows.length} records.`);
   }
