@@ -92,3 +92,48 @@ model QuarterlyBalanceSheet {
   @@id([symbol, year, quarter])
   @@map("quarterly_balance_sheet")
 }
+
+/// 上市公司基本資料。快照式資料（一間公司一列，重抓就整列覆蓋），不是時間序列——
+/// TWSE OpenAPI 本來就只給「今天」的資料，這裡不試圖保留歷史版本。
+/// 資料來源:
+/// - /opendata/t187ap03_L
+model CompanyProfile {
+  symbol                     String    @id
+  reportDate                 DateTime  @db.Date @map("report_date")
+  name                       String
+  shortName                  String    @map("short_name")
+  foreignRegistrationCountry String?   @map("foreign_registration_country")
+  industry                   String
+  address                    String
+  taxId                      String    @map("tax_id")
+  chairman                   String
+  generalManager             String    @map("general_manager")
+  spokesperson               String
+  spokespersonTitle          String    @map("spokesperson_title")
+  deputySpokesperson         String?   @map("deputy_spokesperson")
+  phone                      String
+  establishedDate            DateTime? @db.Date @map("established_date")
+  listedDate                 DateTime? @db.Date @map("listed_date")
+  parValue                   Decimal?  @db.Decimal(14, 4) @map("par_value")
+  paidInCapital               BigInt?   @map("paid_in_capital")
+  privatePlacementShares      BigInt?   @map("private_placement_shares")
+  preferredStockShares        BigInt?   @map("preferred_stock_shares")
+  financialReportType         String    @map("financial_report_type")
+  stockTransferAgency         String    @map("stock_transfer_agency")
+  transferAgencyPhone         String    @map("transfer_agency_phone")
+  transferAgencyAddress       String    @map("transfer_agency_address")
+  auditingFirm                 String    @map("auditing_firm")
+  auditor1                     String    @map("auditor1")
+  auditor2                     String?   @map("auditor2")
+  englishShortName             String    @map("english_short_name")
+  englishAddress                String    @map("english_address")
+  faxNumber                     String?   @map("fax_number")
+  email                          String?
+  website                        String?
+  issuedShares                   BigInt?   @map("issued_shares")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("company_profile")
+}

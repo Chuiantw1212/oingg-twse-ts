@@ -33,6 +33,18 @@ export function parseTwseBigInt(value: string | null | undefined): bigint | null
 }
 
 /**
+ * 西元年 YYYYMMDD 字串轉為 UTC 午夜的 Date。跟 rocDateToISO 不同——不是所有 TWSE 欄位都用民國年，
+ * 例如 t187ap03_L 的「成立日期」「上市日期」就是西元年（出表日期才是民國年）。長度不對或空字串回傳 null。
+ */
+export function gregorianDateToISO(dateStr: string | null | undefined): Date | null {
+  if (!dateStr || dateStr.length !== 8) return null;
+  const year = Number(dateStr.slice(0, 4));
+  const month = Number(dateStr.slice(4, 6));
+  const day = Number(dateStr.slice(6, 8));
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+/**
  * 取得 Asia/Taipei 當地的今天日期（YYYY-MM-DD）。用 Intl 取得該時區的曆法日期，
  * 不能用 new Date() 直接取值，因為容器 TZ=UTC，本地時間不等於台北時間。
  */

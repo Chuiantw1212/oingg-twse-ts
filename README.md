@@ -38,8 +38,11 @@ Cloud Scheduler  →  POST /api/ingest  →  抓 TWSE  →  存 twse_raw  →  �
 | `/exchangeReport/STOCK_DAY_ALL` | `STOCK_DAY_ALL` | 完整：抓取 → 存 `twse_raw` → 正規化 → upsert `daily_price`（開高低收、成交量、成交金額、成交筆數） |
 | `/exchangeReport/STOCK_DAY_AVG_ALL` | `STOCK_DAY_AVG_ALL` | 完整：抓取 → 存 `twse_raw` → 正規化 → upsert `daily_price`（收盤價、月平均價） |
 | `/exchangeReport/BWIBBU_ALL` | `BWIBBU_ALL` | 完整：抓取 → 存 `twse_raw` → 正規化 → upsert `daily_valuation`（本益比、股價淨值比、殖利率） |
+| `/opendata/t187ap03_L` | `COMPANY_PROFILE` | 完整：抓取 → 存 `twse_raw` → 正規化 → upsert `company_profile`（上市公司基本資料，含股本、董監事、簽證會計師等） |
 
 `STOCK_DAY_ALL` 跟 `STOCK_DAY_AVG_ALL` 都 upsert 同一張 `daily_price`（複合主鍵 `symbol, tradeDate`），各自只寫自己負責的欄位，不會互相覆蓋。`Change`（漲跌價差）刻意不存——能從前後兩天存好的 `close` 算出來，不屬於「抓不到就永久消失」的資料。
+
+`company_profile` 跟其他 dataset 不同：主鍵只有 `symbol`，不是時間序列——這份資料本來就是「公司目前的狀態」，重抓就整列覆蓋，不保留歷史版本。
 
 判斷要不要抓某個 dataset 的標準：**能不能從已有資料算出來？** 不能就抓，因為明天就沒了。
 
