@@ -1,6 +1,10 @@
 import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 
-const prismaClient = new PrismaClient();
+// Pooled connection — see NEON.md for why this differs from the DIRECT_URL
+// used by `prisma migrate` (configured separately in prisma.config.ts).
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+const prismaClient = new PrismaClient({ adapter });
 
 // Export the client as a named export `db` for consistent usage across the app.
 export const db = prismaClient;
