@@ -2,7 +2,8 @@ import { Router } from 'ultimate-express';
 import healthzRouter from './domains/system/route';
 import ingestBwibbuAllRouter from './domains/bwibbuAll/route';
 import ingestStockDayAllRouter from './domains/stockDayAll/route';
-import ingestStockDayAvgAllRouter from './domains/stockDayAvgAll/route';
+// TODO: stockDayAvgAll domain not implemented yet (index.ts/route.ts empty)
+// import ingestStockDayAvgAllRouter from './domains/stockDayAvgAll/route';
 import ingestBalanceSheetCiRouter from './domains/balanceSheetCi/route';
 import rootRouter from './domains/system/root';
 
@@ -16,7 +17,7 @@ router.use(healthzRouter);
 const apiRouter = Router();
 apiRouter.use(ingestBwibbuAllRouter);
 apiRouter.use(ingestStockDayAllRouter);
-apiRouter.use(ingestStockDayAvgAllRouter);
+// apiRouter.use(ingestStockDayAvgAllRouter);
 apiRouter.use(ingestBalanceSheetCiRouter);
 
 router.use('/api/ingest', apiRouter);
